@@ -1,0 +1,45 @@
+[project]
+name = "claubiz"
+version = "0.1.0"
+description = "Claude API 기반 로컬 비즈니스 자동화 멀티 에이전트 SDK"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=2.4.0",
+    "keyring>=25.7.0",
+    "textual>=8.2.8",
+]
+
+[project.scripts]
+claubiz = "claubiz.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/claubiz"]
+
+[tool.uv]
+required-version = ">=0.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1.post1",
+    "ruff>=0.17.3",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/claubiz/tui/*.py" = ["BLE001", "RUF012", "SIM117"]
+"src/claubiz/orchestrator.py" = ["BLE001"]
+"src/claubiz/secrets.py" = ["BLE001"]
