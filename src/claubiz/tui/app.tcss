@@ -1,0 +1,898 @@
+Screen {
+    layout: vertical;
+    background: $background;
+}
+
+#topbar {
+    height: 1;
+    padding: 0 2;
+    margin: 1 0;
+}
+
+#brand {
+    width: auto;
+}
+
+#crumb {
+    width: 1fr;
+    padding-left: 3;
+}
+
+#hold-hint {
+    width: auto;
+    padding-right: 3;
+}
+
+#meter {
+    width: auto;
+}
+
+#body {
+    height: 1fr;
+}
+
+#sidebar {
+    width: 34;
+    padding: 0 1 0 2;
+}
+
+.section-title {
+    color: $text-muted;
+    text-style: bold;
+    padding: 0 1;
+    height: 1;
+}
+
+#ws-list {
+    height: auto;
+    max-height: 60%;
+    min-height: 3;
+    border: round $border-blurred;
+    background: $background;
+    padding: 0 0;
+    scrollbar-size-vertical: 1;
+}
+
+#ws-list:focus {
+    border: round $accent;
+}
+
+#ws-list > .option-list--option {
+    padding: 0 1;
+}
+
+#ws-list > .option-list--option-highlighted {
+    background: $block-cursor-blurred-background;
+    color: $foreground;
+    text-style: none;
+}
+
+#ws-list:focus > .option-list--option-highlighted {
+    background: $block-cursor-blurred-background;
+    color: $accent;
+    text-style: bold;
+}
+
+#ws-list:disabled {
+    opacity: 60%;
+}
+
+#new-ws {
+    width: 100%;
+    margin-top: 1;
+}
+
+#ws-card {
+    height: auto;
+    margin-top: 1;
+}
+
+#jobs-card {
+    height: auto;
+    margin-top: 1;
+    border: round $accent 70%;
+    border-title-color: $accent;
+}
+
+#jobs-card:hover {
+    border: round $accent;
+}
+
+#main {
+    width: 1fr;
+    padding: 0 2 0 1;
+}
+
+TabbedContent {
+    height: 1fr;
+}
+
+TabbedContent > ContentSwitcher {
+    height: 1fr;
+}
+
+TabPane {
+    padding: 1 0 0 0;
+}
+
+Tabs {
+    background: $background;
+}
+
+Tab {
+    color: $text-muted;
+    padding: 0 2;
+}
+
+Tab:hover {
+    color: $foreground;
+}
+
+Tab.-active {
+    color: $accent;
+    text-style: bold;
+    background: $background;
+}
+
+Tabs:focus Tab.-active {
+    background: $block-cursor-background;
+    color: $block-cursor-foreground;
+}
+
+Tabs > #tabs-scroll > Underline > .underline--bar {
+    color: $accent;
+    background: $border-blurred;
+}
+
+.card {
+    border: round $border-blurred;
+    border-title-color: $text-muted;
+    border-title-style: bold;
+    padding: 0 1;
+    background: $background;
+}
+
+.card:focus,
+.card:focus-within {
+    border: round $accent;
+    border-title-color: $accent;
+}
+
+#composer {
+    height: auto;
+    padding: 0 1;
+}
+
+#composer-row {
+    height: 3;
+}
+
+#pb {
+    width: 1fr;
+}
+
+#new-pb {
+    margin-left: 1;
+    margin-right: 0;
+    min-width: 14;
+}
+
+#model {
+    width: 20;
+    margin-left: 1;
+}
+
+.-narrow #new-pb {
+    min-width: 5;
+    padding: 0 1;
+}
+
+
+#cap-box {
+    width: 16;
+    height: 3;
+    margin-left: 1;
+    border: round $border-blurred;
+    background: $background;
+}
+
+#cap-box:focus-within {
+    border: round $accent;
+}
+
+#cap-prefix {
+    width: 3;
+    height: 1;
+    padding-left: 1;
+    color: $text-muted;
+}
+
+#cap-box > #cap,
+#cap-box > #cap:focus {
+    width: 1fr;
+    height: 1;
+    border: none;
+    padding: 0 1 0 0;
+    background: $background;
+}
+
+#follow-bar {
+    height: 3;
+    padding: 0 0 0 1;
+}
+
+#follow-text {
+    width: 1fr;
+    height: 3;
+    content-align: left middle;
+}
+
+#follow-bar > Button {
+    margin-right: 0;
+    min-width: 8;
+}
+
+#goal {
+    height: 5;
+    border: none;
+    padding: 0 1;
+    background: $background;
+}
+
+#goal:focus {
+    border: none;
+}
+
+#goal.-locked {
+    color: $text-muted;
+}
+
+#actions {
+    height: 3;
+}
+
+#run-state {
+    width: 1fr;
+    content-align: right middle;
+    height: 3;
+    padding-right: 1;
+}
+
+#plan-card {
+    height: auto;
+    max-height: 9;
+    display: none;
+    margin-top: 1;
+}
+
+#plan-card.-visible {
+    display: block;
+}
+
+#run-split {
+    height: 1fr;
+    margin-top: 1;
+}
+
+#tasks {
+    width: 3fr;
+    height: 1fr;
+}
+
+#log {
+    width: 2fr;
+    height: 1fr;
+    margin-left: 1;
+    scrollbar-size-vertical: 1;
+    scrollbar-gutter: stable;
+    overflow-x: hidden;
+}
+
+#runs {
+    height: 1fr;
+}
+
+#preview-box {
+    height: 13;
+    margin-top: 1;
+    scrollbar-size-vertical: 1;
+}
+
+#run-preview {
+    margin: 0;
+    padding: 0;
+    background: $background;
+}
+
+#inputs-actions {
+    height: 3;
+}
+
+#edit-brief {
+    margin-left: 0;
+}
+
+#brief-state {
+    width: 1fr;
+    content-align: right middle;
+    height: 3;
+    padding-right: 1;
+}
+
+#inputs {
+    height: 1fr;
+    margin-top: 1;
+}
+
+#policy {
+    height: auto;
+    margin-top: 1;
+}
+
+DataTable {
+    background: $background;
+    scrollbar-size-vertical: 1;
+}
+
+DataTable > .datatable--header {
+    background: $background;
+    color: $text-muted;
+    text-style: bold;
+}
+
+DataTable > .datatable--header-hover {
+    background: $background;
+}
+
+DataTable > .datatable--odd-row,
+DataTable > .datatable--even-row {
+    background: $background;
+}
+
+DataTable > .datatable--hover {
+    background: $block-hover-background;
+}
+
+Button {
+    height: 3;
+    min-width: 12;
+    padding: 0 2;
+    margin-right: 1;
+    border: round $border-blurred;
+    background: $background;
+    color: $foreground;
+    text-style: none;
+}
+
+Button:hover {
+    border: round $accent;
+    color: $accent;
+    background: $background;
+}
+
+Button:focus {
+    border: round $accent;
+    text-style: bold;
+    background-tint: $background 0%;
+}
+
+Button.-active {
+    background: $background;
+    border: round $accent;
+    tint: $background 0%;
+}
+
+Button.-primary {
+    border: round $primary;
+    color: $primary;
+    background: $background;
+    text-style: bold;
+}
+
+Button.-success {
+    border: round $success;
+    color: $success;
+    background: $background;
+}
+
+Button.-error {
+    border: round $error;
+    color: $error;
+    background: $background;
+}
+
+Button:disabled,
+Button.-primary:disabled,
+Button.-success:disabled,
+Button.-error:disabled {
+    border: round $border-blurred;
+    color: $text-disabled;
+    background: $background;
+    text-style: none;
+}
+
+Input {
+    border: round $border-blurred;
+    background: $background;
+    padding: 0 1;
+}
+
+Input:focus {
+    border: round $accent;
+    background-tint: $background 0%;
+}
+
+Input > .input--placeholder {
+    color: $text-disabled;
+}
+
+Input > .input--cursor,
+Input:ansi > .input--cursor {
+    background: $input-cursor-background;
+    color: $input-cursor-foreground;
+    text-style: none;
+}
+
+TextArea > .text-area--cursor,
+TextArea:ansi > .text-area--cursor {
+    background: $input-cursor-background;
+    color: $input-cursor-foreground;
+    text-style: none;
+}
+
+Input:disabled {
+    opacity: 50%;
+}
+
+Select > SelectCurrent {
+    border: round $border-blurred;
+    background: $background;
+    padding: 0 1;
+}
+
+Select:focus > SelectCurrent {
+    border: round $accent;
+    background-tint: $background 0%;
+}
+
+Select > SelectOverlay {
+    border: round $accent;
+    background: $background;
+}
+
+Switch {
+    border: round $border-blurred;
+    background: $background;
+}
+
+Switch:focus {
+    border: round $accent;
+    background-tint: $background 0%;
+}
+
+Switch > .switch--slider {
+    color: $border-blurred;
+    background: $background;
+}
+
+Switch.-on > .switch--slider {
+    color: $accent;
+}
+
+TextArea > .text-area--placeholder {
+    color: $text-disabled;
+}
+
+TextArea > .text-area--cursor-line {
+    background: $background;
+}
+
+Footer {
+    background: $background;
+}
+
+FooterKey .footer-key--key {
+    color: $accent;
+    background: $background;
+    text-style: bold;
+}
+
+FooterKey .footer-key--description {
+    color: $text-muted;
+    background: $background;
+}
+
+ModalScreen {
+    align: center middle;
+    background: $background 70%;
+}
+
+.modal-box {
+    height: auto;
+    max-height: 92%;
+    border: round $accent;
+    background: $background;
+    padding: 1 2;
+}
+
+#create-box {
+    width: 88;
+    height: auto;
+    max-height: 94%;
+    scrollbar-size-vertical: 1;
+}
+
+#import-box {
+    width: 96;
+}
+
+#run-import-box,
+#export-box {
+    width: 96;
+}
+
+#r-list {
+    height: auto;
+    max-height: 16;
+    border: round $border-blurred;
+    background: $background;
+    scrollbar-size-vertical: 1;
+}
+
+#r-list:focus,
+#x-dirs:focus {
+    border: round $accent;
+}
+
+#r-list > .option-list--option-highlighted,
+#x-dirs > .option-list--option-highlighted {
+    background: $block-cursor-blurred-background;
+    color: $foreground;
+}
+
+#x-dirs {
+    height: auto;
+    max-height: 10;
+    border: round $border-blurred;
+    background: $background;
+    scrollbar-size-vertical: 1;
+}
+
+#run-import-box .form-grid {
+    margin-top: 1;
+}
+
+#brief-box,
+#playbook-box {
+    width: 92;
+    height: auto;
+    max-height: 94%;
+    scrollbar-size-vertical: 1;
+}
+
+#brief-area {
+    height: auto;
+    margin-top: 1;
+}
+
+#brief-area > .modal-sub {
+    margin-bottom: 0;
+}
+
+#create-box #f-brief {
+    height: 8;
+}
+
+#brief-box #f-brief {
+    height: 18;
+}
+
+#f-brief,
+.guide-area {
+    border: round $border-blurred;
+    background: $background;
+    padding: 0 1;
+}
+
+#f-brief:focus,
+.guide-area:focus {
+    border: round $accent;
+}
+
+.guide-area {
+    height: 5;
+}
+
+.switch-row {
+    height: 3;
+}
+
+.switch-row {
+    margin-left: 1;
+}
+
+.switch-label {
+    width: auto;
+    height: 3;
+    content-align: left middle;
+    padding: 0 3 0 1;
+    color: $text-muted;
+}
+
+.switch-label:hover {
+    color: $foreground;
+}
+
+.field-title {
+    color: $text-muted;
+    height: 1;
+    margin: 1 0 0 1;
+}
+
+#brief-actions {
+    height: 3;
+}
+
+#gen-state {
+    width: 1fr;
+    height: 3;
+    content-align: left middle;
+    padding-left: 1;
+}
+
+.modal-actions > #gen-state {
+    width: 1fr;
+}
+
+#f-path {
+    margin-top: 0;
+}
+
+#f-matches {
+    height: auto;
+    max-height: 12;
+    border: round $border-blurred;
+    background: $background;
+    scrollbar-size-vertical: 1;
+}
+
+#f-matches > .option-list--option-highlighted,
+#f-selected > .option-list--option-highlighted {
+    background: $block-cursor-blurred-background;
+    color: $foreground;
+}
+
+#f-selected:focus > .option-list--option-highlighted {
+    color: $accent;
+}
+
+.picker-label {
+    height: 1;
+    margin: 1 0 0 1;
+}
+
+#f-selected {
+    height: auto;
+    max-height: 8;
+    border: round $border-blurred;
+    background: $background;
+    scrollbar-size-vertical: 1;
+}
+
+#f-selected:focus {
+    border: round $accent;
+}
+
+#import-box .form-grid {
+    margin-top: 1;
+}
+
+.toast-screen {
+    align: right bottom;
+    background: transparent;
+}
+
+#confirm-box {
+    width: 62;
+    height: auto;
+    border: round $error;
+    background: $background;
+    padding: 0 2;
+    margin: 0 2 2 0;
+}
+
+.confirm-title {
+    color: $error;
+    text-style: bold;
+    height: 1;
+    margin-top: 1;
+}
+
+.confirm-detail {
+    height: auto;
+    margin-top: 1;
+}
+
+.confirm-actions {
+    height: 3;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.confirm-keys {
+    width: 1fr;
+    height: 3;
+    content-align: left middle;
+}
+
+.confirm-actions > Button {
+    margin-right: 0;
+    margin-left: 1;
+}
+
+.menu-screen {
+    align: left top;
+    background: transparent;
+}
+
+#context-menu {
+    height: auto;
+    border: round $accent;
+    border-title-color: $text-muted;
+    background: $background;
+    padding: 0;
+}
+
+#context-menu > .option-list--option {
+    padding: 0 1;
+}
+
+#context-menu > .option-list--option-highlighted {
+    background: $block-cursor-background;
+    color: $block-cursor-foreground;
+    text-style: bold;
+}
+
+#viewer-box {
+    width: 94%;
+    height: 92%;
+    padding: 0 1;
+}
+
+.modal-title {
+    color: $accent;
+    text-style: bold;
+    height: 1;
+}
+
+.modal-sub {
+    color: $text-muted;
+    margin-bottom: 1;
+    height: auto;
+}
+
+.form-grid {
+    grid-size: 2;
+    grid-columns: 20 1fr;
+    grid-rows: 3;
+    grid-gutter: 0 1;
+    height: auto;
+}
+
+.form-grid > Label {
+    padding: 1 0 0 1;
+    color: $text-muted;
+    width: 100%;
+}
+
+.pair {
+    height: 3;
+}
+
+.pair > Input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+.modal-error {
+    color: $error;
+    height: auto;
+    margin-top: 1;
+}
+
+.modal-actions {
+    height: 3;
+    align-horizontal: right;
+    margin-top: 1;
+}
+
+.modal-actions > Button {
+    margin-right: 0;
+    margin-left: 1;
+}
+
+.modal-hint {
+    height: 1;
+    margin-top: 0;
+}
+
+#viewer-head {
+    height: 1;
+    margin: 1 1 0 1;
+}
+
+#viewer-title {
+    width: 1fr;
+}
+
+#viewer-meta {
+    width: auto;
+}
+
+#viewer-box TabbedContent {
+    height: 1fr;
+}
+
+#viewer-box TabPane {
+    padding: 1 1 0 1;
+}
+
+#note-list {
+    width: 34;
+    height: 1fr;
+    border: round $border-blurred;
+    background: $background;
+    margin-right: 1;
+}
+
+#note-list:focus {
+    border: round $accent;
+}
+
+#note-list > .option-list--option-highlighted {
+    background: $block-cursor-blurred-background;
+    color: $foreground;
+}
+
+#note-list:focus > .option-list--option-highlighted {
+    background: $block-cursor-blurred-background;
+    color: $accent;
+    text-style: bold;
+}
+
+MarkdownViewer {
+    background: $background;
+    height: 1fr;
+}
+
+MarkdownViewer > MarkdownTableOfContents {
+    width: 32;
+    background: $background;
+    border-right: solid $border-blurred;
+}
+
+MarkdownViewer > Markdown {
+    background: $background;
+    padding: 0 2;
+}
+
+Markdown {
+    background: $background;
+}
+
+MarkdownTable {
+    background: $background;
+}
+
+Toast {
+    background: $background;
+    border-left: outer $accent;
+}
+
+Toast.-error {
+    border-left: outer $error;
+}
+
+Toast.-warning {
+    border-left: outer $warning;
+}
