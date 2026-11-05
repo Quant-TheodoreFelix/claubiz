@@ -1,0 +1,393 @@
+#!/bin/sh
+set -eu
+
+CLAUBIZ_VERSION='@VERSION@'
+CLAUBIZ_RELEASE='@RELEASE@'
+CLAUBIZ_SOURCE='@BASE_URL@'
+CLAUBIZ_WHEEL='@WHEEL@'
+CLAUBIZ_WHEEL_SHA256='@WHEEL_SHA256@'
+CLAUBIZ_LOCK_SHA256='@LOCK_SHA256@'
+PYTHON_REQUEST='3.12'
+UV_MIN='0.11.0'
+UV_VERSION='0.13.1'
+MARKER='.claubiz-install'
+LAUNCH_AGENT='com.claubiz.digest'
+
+TMP_DIR=''
+UV_BIN=''
+UV_SHA256=''
+TARGET=''
+PREFIX=''
+BIN_DIR=''
+SOURCE=''
+
+say() {
+    printf '%s\n' "$*"
+}
+
+die() {
+    printf 'claubiz 설치 중단: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<EOF
+claubiz $CLAUBIZ_VERSION 설치 ($CLAUBIZ_RELEASE)
+
+사용법
+  curl -fsSL $CLAUBIZ_SOURCE/install.sh | sh
+  curl -fsSL $CLAUBIZ_SOURCE/install.sh | sh -s -- [옵션]
+  sh install.sh [옵션]
+
+옵션
+  --prefix DIR      프로그램 설치 위치 (기본 ~/.local/share/claubiz)
+  --bin-dir DIR     claubiz 명령 링크 위치 (기본 ~/.local/bin)
+  --source DIR|URL  배포 묶음 위치 (기본 $CLAUBIZ_SOURCE)
+  --uninstall       프로그램 제거 (데이터 폴더와 키체인의 API 키는 남김)
+  -h, --help        도움말
+EOF
+}
+
+cleanup() {
+    if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
+        rm -rf "$TMP_DIR"
+    fi
+}
+
+need() {
+    command -v "$1" >/dev/null 2>&1 || die "$1 명령이 필요함"
+}
+
+require_absolute() {
+    case "$1" in
+        /?*) ;;
+        *) die "$2 값은 절대 경로여야 함: $1" ;;
+    esac
+}
+
+detect_target() {
+    os=$(uname -s)
+    arch=$(uname -m)
+    case "$arch" in
+        arm64 | aarch64) arch=aarch64 ;;
+        x86_64 | amd64) arch=x86_64 ;;
+        *) die "지원하지 않는 CPU: $arch" ;;
+    esac
+    case "$os" in
+        Darwin)
+            if [ "$arch" = x86_64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
+                arch=aarch64
+            fi
+            TARGET="$arch-apple-darwin"
+            ;;
+        Linux)
+            if [ -e "/lib/ld-musl-$arch.so.1" ] || ldd --version 2>&1 | grep -qi musl; then
+                TARGET="$arch-unknown-linux-musl"
+            else
+                TARGET="$arch-unknown-linux-gnu"
+            fi
+            ;;
+        MINGW* | MSYS* | CYGWIN*) die "Windows는 아직 지원하지 않음" ;;
+        *) die "지원하지 않는 운영체제: $os" ;;
+    esac
+}
+
+select_uv_sha256() {
+    case "$1" in
+        aarch64-apple-darwin) UV_SHA256='cfe454573412ff7380d15fc7dae5997ab53ffce72fce0a78e91ddbc84001acd2' ;;
+        x86_64-apple-darwin) UV_SHA256='bb7b805bdcf3d0bc8c74ceb94569e6b3e8aa35bd492acdbb9d46bf46d9d4ff6b' ;;
+        aarch64-unknown-linux-gnu) UV_SHA256='9041c73c99fdc5892cf128140beb354eca9231d502068cc36e6cb53a8e59ad14' ;;
+        x86_64-unknown-linux-gnu) UV_SHA256='eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220' ;;
+        aarch64-unknown-linux-musl) UV_SHA256='345a8308e4d1835cdfaadf692836fd3137a6d45864773f05ad7bf59442b1ba16' ;;
+        x86_64-unknown-linux-musl) UV_SHA256='6c86040a8f045ab9adc9e3ec4cdafa03fd00e9a988ed2bf28971c7fc2d0debd0' ;;
+        *) die "uv 고정 해시가 없는 플랫폼: $1" ;;
+    esac
+}
+
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 -r "$1" | awk '{print $1}'
+    else
+        die "SHA-256 도구(sha256sum, shasum, openssl)가 없음"
+    fi
+}
+
+verify() {
+    actual=$(sha256_of "$1")
+    if [ "$actual" != "$2" ]; then
+        die "해시 불일치로 중단함, 파일이 변조되었거나 손상됨: ${1##*/} (기대 $2, 실제 ${actual:-없음})"
+    fi
+}
+
+fetch() {
+    src=$1
+    dest=$2
+    case "$src" in
+        https://*) proto='=https' ;;
+        http://127.0.0.1:* | http://127.0.0.1/* | http://localhost:* | http://localhost/*) proto='=http' ;;
+        /*)
+            if [ -L "$src" ] || [ ! -f "$src" ]; then
+                die "일반 파일이 아님: $src"
+            fi
+            cp "$src" "$dest"
+            return 0
+            ;;
+        *) die "허용되지 않는 주소: $src" ;;
+    esac
+    if command -v curl >/dev/null 2>&1; then
+        curl --proto "$proto" --proto-redir "$proto" --tlsv1.2 -fsSL --retry 3 --connect-timeout 20 \
+            -o "$dest" "$src" </dev/null || die "내려받기 실패: $src"
+    elif command -v wget >/dev/null 2>&1; then
+        [ "$proto" = '=https' ] || die "http 주소는 curl로만 받을 수 있음: $src"
+        wget --https-only -q -O "$dest" "$src" </dev/null || die "내려받기 실패: $src"
+    else
+        die "curl 또는 wget이 필요함"
+    fi
+}
+
+check_source() {
+    case "$SOURCE" in
+        *@* | *'?'* | *'#'*) die "배포 묶음 주소에 @, ?, # 은 쓸 수 없음: $SOURCE" ;;
+        https://?*) ;;
+        http://127.0.0.1:* | http://127.0.0.1/* | http://localhost:* | http://localhost/*) ;;
+        /?*) [ -d "$SOURCE" ] || die "배포 묶음 폴더가 없음: $SOURCE" ;;
+        *) die "배포 묶음 위치는 https 주소나 절대 경로여야 함: $SOURCE" ;;
+    esac
+    SOURCE=${SOURCE%/}
+}
+
+version_ge() {
+    lowest=$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)
+    [ -n "$1" ] && [ "$lowest" = "$2" ]
+}
+
+find_uv() {
+    found=$(command -v uv 2>/dev/null || true)
+    case "$found" in
+        /*) ;;
+        *) return 1 ;;
+    esac
+    found_version=$("$found" --version 2>/dev/null </dev/null | awk '{print $2}')
+    version_ge "$found_version" "$UV_MIN" || return 1
+    UV_BIN=$found
+    say "설치된 uv $found_version 사용: $found"
+}
+
+download_uv() {
+    select_uv_sha256 "$TARGET"
+    say "uv $UV_VERSION 내려받는 중"
+    archive="$TMP_DIR/uv.tar.gz"
+    fetch "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$TARGET.tar.gz" "$archive"
+    verify "$archive" "$UV_SHA256"
+    mkdir "$TMP_DIR/uv"
+    tar -xzf "$archive" -C "$TMP_DIR/uv"
+    UV_BIN="$TMP_DIR/uv/uv-$TARGET/uv"
+    if [ ! -f "$UV_BIN" ] || [ ! -x "$UV_BIN" ]; then
+        die "uv 압축 파일 구조가 예상과 다름"
+    fi
+}
+
+check_prefix() {
+    if [ -L "$PREFIX" ]; then
+        die "설치 위치가 심볼릭 링크임: $PREFIX"
+    fi
+    if [ -e "$PREFIX" ]; then
+        [ -d "$PREFIX" ] || die "설치 위치가 폴더가 아님: $PREFIX"
+        if [ ! -f "$PREFIX/$MARKER" ] && [ -n "$(ls -A "$PREFIX")" ]; then
+            die "claubiz 설치 폴더가 아니어서 덮어쓰지 않음: $PREFIX"
+        fi
+    fi
+}
+
+check_link() {
+    link="$BIN_DIR/claubiz"
+    if [ -L "$link" ]; then
+        current=$(readlink "$link")
+        case "$current" in
+            "$PREFIX"/*) ;;
+            *) die "$link 가 다른 claubiz($current)를 가리킴, 확인 후 지우고 다시 실행" ;;
+        esac
+    elif [ -e "$link" ]; then
+        die "$link 에 다른 파일이 있어 덮어쓰지 않음"
+    fi
+}
+
+prepare_prefix() {
+    mkdir -p "$PREFIX"
+    chmod 700 "$PREFIX"
+    printf 'version=%s\nrelease=%s\nsource=%s\n' "$CLAUBIZ_VERSION" "$CLAUBIZ_RELEASE" "$SOURCE" \
+        >"$PREFIX/$MARKER"
+}
+
+isolate_uv() {
+    unset VIRTUAL_ENV CONDA_PREFIX PYTHONPATH PYTHONHOME PYTHONSTARTUP
+    unset UV_PYTHON UV_SYSTEM_PYTHON UV_NO_MANAGED_PYTHON UV_PYTHON_PREFERENCE UV_VENV_SEED
+    export UV_PYTHON_INSTALL_DIR="$PREFIX/python"
+    export UV_PYTHON_BIN_DIR="$TMP_DIR/python-bin"
+    export UV_CACHE_DIR="$TMP_DIR/cache"
+}
+
+install_venv() {
+    staged="$PREFIX/venv.new"
+    rm -rf "$staged"
+    say "Python $PYTHON_REQUEST 실행 환경 만드는 중"
+    "$UV_BIN" venv --quiet --relocatable --managed-python --python "$PYTHON_REQUEST" "$staged" </dev/null
+    say "의존성 설치 중 (requirements.lock 해시 검증)"
+    "$UV_BIN" pip install --quiet --python "$staged/bin/python" --require-hashes --only-binary :all: \
+        -r "$TMP_DIR/requirements.lock" </dev/null
+    "$UV_BIN" pip install --quiet --python "$staged/bin/python" --no-deps --no-index \
+        "$TMP_DIR/$CLAUBIZ_WHEEL" </dev/null
+    reported=$(CLAUBIZ_HOME="$TMP_DIR/home" "$staged/bin/claubiz" --version 2>&1 </dev/null) \
+        || die "설치 확인 실패: $reported"
+    [ "$reported" = "claubiz $CLAUBIZ_VERSION" ] || die "설치 확인 실패: $reported"
+    rm -rf "$PREFIX/venv.old"
+    if [ -d "$PREFIX/venv" ]; then
+        mv "$PREFIX/venv" "$PREFIX/venv.old"
+    fi
+    mv "$staged" "$PREFIX/venv"
+    rm -rf "$PREFIX/venv.old"
+}
+
+link_bin() {
+    mkdir -p "$BIN_DIR"
+    check_link
+    ln -sf "$PREFIX/venv/bin/claubiz" "$BIN_DIR/claubiz"
+}
+
+check_keyring() {
+    if backend=$("$PREFIX/venv/bin/python" -I -c 'from claubiz.secrets import SECURE_BACKENDS, backend_name
+name = backend_name()
+print(name)
+raise SystemExit(0 if name in SECURE_BACKENDS else 3)' 2>/dev/null </dev/null); then
+        return 0
+    fi
+    say ""
+    say "주의: 안전한 키 저장소를 찾지 못함 (${backend:-확인 실패})"
+    say "claubiz는 API 키를 평문으로 저장하지 않으므로 macOS 키체인이나 Secret Service(GNOME Keyring, KWallet)가 필요함"
+    say "서버나 WSL처럼 Secret Service가 없는 환경에서는 claubiz auth set이 실패함"
+}
+
+finish() {
+    say ""
+    say "설치 완료: claubiz $CLAUBIZ_VERSION"
+    say "  프로그램  $PREFIX"
+    say "  명령      $BIN_DIR/claubiz"
+    case ":${PATH:-}:" in
+        *":$BIN_DIR:"*) ;;
+        *)
+            say ""
+            say "PATH에 $BIN_DIR 경로가 없음. 셸 설정 파일(~/.zshrc, ~/.bashrc)에 아래 줄을 추가"
+            say "  export PATH=\"$BIN_DIR:\$PATH\""
+            ;;
+    esac
+    other=$(command -v claubiz 2>/dev/null || true)
+    if [ -n "$other" ] && [ "$other" != "$BIN_DIR/claubiz" ]; then
+        say ""
+        say "주의: PATH에서 다른 claubiz가 먼저 실행됨: $other"
+    fi
+    say ""
+    say "다음 단계"
+    say "  claubiz init        데이터 폴더(~/.claubiz)와 설정 생성 (조직 키는 --workspace-id wrkspc_...)"
+    say "  claubiz auth set    API 키를 키체인에 저장 (입력이 화면에 표시되지 않음)"
+    say "  claubiz             TUI 실행"
+}
+
+install_claubiz() {
+    check_source
+    detect_target
+    need uname
+    need mktemp
+    need tar
+    need awk
+    command -v realpath >/dev/null 2>&1 || die "realpath 명령이 필요함 (macOS 13 이상 또는 coreutils)"
+    check_prefix
+    check_link
+    TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/claubiz-install.XXXXXX")
+    trap cleanup EXIT
+    trap 'exit 130' INT TERM HUP
+    cd "$TMP_DIR"
+    say "claubiz $CLAUBIZ_VERSION 설치 시작 ($TARGET)"
+    release="$SOURCE/releases/$CLAUBIZ_RELEASE"
+    fetch "$release/$CLAUBIZ_WHEEL" "$TMP_DIR/$CLAUBIZ_WHEEL"
+    verify "$TMP_DIR/$CLAUBIZ_WHEEL" "$CLAUBIZ_WHEEL_SHA256"
+    fetch "$release/requirements.lock" "$TMP_DIR/requirements.lock"
+    verify "$TMP_DIR/requirements.lock" "$CLAUBIZ_LOCK_SHA256"
+    say "배포 파일 해시 확인 완료"
+    find_uv || download_uv
+    prepare_prefix
+    isolate_uv
+    install_venv
+    link_bin
+    check_keyring
+    finish
+}
+
+uninstall_claubiz() {
+    [ -f "$PREFIX/$MARKER" ] || die "설치 기록이 없음: $PREFIX"
+    [ ! -L "$PREFIX" ] || die "설치 위치가 심볼릭 링크임: $PREFIX"
+    plist="$HOME/Library/LaunchAgents/$LAUNCH_AGENT.plist"
+    if [ -f "$plist" ] && grep -qF "$PREFIX/" "$plist"; then
+        die "백그라운드 실행이 등록되어 있음, 먼저 claubiz agent uninstall 실행"
+    fi
+    link="$BIN_DIR/claubiz"
+    if [ -L "$link" ]; then
+        case "$(readlink "$link")" in
+            "$PREFIX"/*) rm -f "$link" ;;
+        esac
+    fi
+    rm -rf "$PREFIX"
+    say "claubiz 제거 완료: $PREFIX"
+    say "데이터 폴더(~/.claubiz)와 키체인의 API 키는 남겨 둠"
+}
+
+main() {
+    action=install
+    SOURCE=$CLAUBIZ_SOURCE
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --prefix | --bin-dir | --source)
+                [ $# -ge 2 ] || die "$1 값이 없음"
+                case "$1" in
+                    --prefix) PREFIX=$2 ;;
+                    --bin-dir) BIN_DIR=$2 ;;
+                    --source) SOURCE=$2 ;;
+                esac
+                shift 2
+                ;;
+            --prefix=*) PREFIX=${1#*=}; shift ;;
+            --bin-dir=*) BIN_DIR=${1#*=}; shift ;;
+            --source=*) SOURCE=${1#*=}; shift ;;
+            --uninstall) action=uninstall; shift ;;
+            -h | --help) usage; exit 0 ;;
+            *) die "알 수 없는 옵션: $1 (--help 참고)" ;;
+        esac
+    done
+    [ "$(id -u)" != 0 ] || die "root가 아닌 사용자 계정으로 실행해야 함"
+    [ -n "${HOME:-}" ] || die "HOME이 설정되지 않음"
+    require_absolute "$HOME" HOME
+    if [ -z "$PREFIX" ]; then
+        data_home=${XDG_DATA_HOME:-}
+        case "$data_home" in
+            /?*) ;;
+            *) data_home="$HOME/.local/share" ;;
+        esac
+        PREFIX="${data_home%/}/claubiz"
+    fi
+    [ -n "$BIN_DIR" ] || BIN_DIR="$HOME/.local/bin"
+    PREFIX=${PREFIX%/}
+    BIN_DIR=${BIN_DIR%/}
+    require_absolute "$PREFIX" --prefix
+    require_absolute "$BIN_DIR" --bin-dir
+    umask 077
+    if [ "$action" = uninstall ]; then
+        uninstall_claubiz
+    else
+        install_claubiz
+    fi
+}
+
+main "$@"
