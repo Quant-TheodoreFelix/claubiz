@@ -17,13 +17,16 @@ SCOPE_NOTES = {
 }
 
 
-def brief_message(name: str, description: str, scope: str, web_note: str, hints: str) -> str:
+def brief_message(name: str, description: str, scope: str, web_note: str, hints: str,
+                  profile: list[str] | None = None) -> str:
     lines = [
         f"Workspace name: {name}",
         f"Description: {description.strip() or '(none)'}",
         f"Activity scope: {SCOPE_NOTES.get(scope, scope)}",
         f"Web source policy: {web_note}",
     ]
+    if profile:
+        lines.append("<business_profile>\n" + "\n".join(profile) + "\n</business_profile>")
     if hints.strip():
         lines.append(f"<operator_notes>\n{hints.strip()[:MAX_HINT_CHARS]}\n</operator_notes>")
     return "\n".join(lines)
@@ -31,12 +34,12 @@ def brief_message(name: str, description: str, scope: str, web_note: str, hints:
 
 async def generate_brief(
     runtime, *, name: str, description: str, scope: str, web_note: str, hints: str = "", ws_budget: float = 0.0,
-    redact: bool = True,
+    redact: bool = True, profile: list[str] | None = None,
 ) -> tuple[str, float]:
     settings = runtime.settings
     role = settings.models.planner
     run_id = new_run_id()
-    message = brief_message(name, description, scope, web_note, hints)
+    message = brief_message(name, description, scope, web_note, hints, profile)
     if redact:
         message, _ = redact_pii(message)
     guard = BudgetGuard(runtime.ledger, settings, name, ws_budget, run_id, BRIEF_RUN_CAP_USD,

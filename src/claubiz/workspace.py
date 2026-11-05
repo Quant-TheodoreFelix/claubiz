@@ -23,6 +23,30 @@ MAX_BRIEF_CHARS = 20000
 REPORT_FOOTER = "\n---\n실행 "
 EXPORT_NAME_RE = re.compile(r"[^\w가-힣 ._()-]+")
 CLASS_ORDER = ("public", "internal", "confidential")
+BUSINESS_TYPES: tuple[tuple[str, str], ...] = (
+    ("consulting", "컨설팅·자문"),
+    ("saas", "SaaS·IT 서비스"),
+    ("commerce", "이커머스·리테일"),
+    ("manufacturing", "제조·유통"),
+    ("finance", "금융·투자"),
+    ("public", "공공·조달"),
+    ("marketing", "마케팅·에이전시"),
+    ("healthcare", "의료·헬스케어"),
+    ("education", "교육"),
+    ("realestate", "부동산·건설"),
+    ("startup", "스타트업 일반"),
+    ("other", "기타"),
+)
+PROFILE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("industry", "Industry and niche"),
+    ("offering", "Main products or services"),
+    ("customers", "Main customers"),
+    ("competitors", "Competitors and benchmarks"),
+    ("markets", "Regions and markets of interest"),
+    ("audience", "Readers of the deliverables"),
+    ("focus", "Recurring work and issues to watch"),
+)
+ACTION_TYPES: tuple[str, ...] = ("email", "event", "table", "doc")
 
 
 class WorkspaceError(Exception):
@@ -50,6 +74,47 @@ class WebPolicy(BaseModel):
         return self
 
 
+class BusinessProfile(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    business_type: str = ""
+    industry: str = Field("", max_length=200)
+    offering: str = Field("", max_length=300)
+    customers: str = Field("", max_length=300)
+    competitors: str = Field("", max_length=300)
+    markets: str = Field("", max_length=200)
+    audience: str = Field("", max_length=200)
+    focus: str = Field("", max_length=1500)
+
+    @field_validator("business_type")
+    @classmethod
+    def _type(cls, value: str) -> str:
+        if value and value not in dict(BUSINESS_TYPES):
+            raise ValueError(f"알 수 없는 비즈니스 유형: {value}")
+        return value
+
+    @field_validator("industry", "offering", "customers", "competitors", "markets", "audience")
+    @classmethod
+    def _single_line(cls, value: str) -> str:
+        return " ".join(value.split())
+
+    def is_empty(self) -> bool:
+        return not any(getattr(self, name) for name in ("business_type", *dict(PROFILE_FIELDS)))
+
+    def type_label(self) -> str:
+        return dict(BUSINESS_TYPES).get(self.business_type, "")
+
+    def lines(self) -> list[str]:
+        out = []
+        if self.business_type:
+            out.append(f"Business type: {self.type_label()}")
+        for name, label in PROFILE_FIELDS:
+            value = getattr(self, name)
+            if value:
+                out.append(f"{label}: {value}")
+        return out
+
+
 class WorkspaceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -60,7 +125,18 @@ class WorkspaceConfig(BaseModel):
     redact_pii: bool = True
     budget_monthly_usd: float = Field(0.0, ge=0)
     reuse_max_age_days: int = Field(7, ge=0, le=365)
+    knowledge: bool = True
+    actions: tuple[str, ...] = ACTION_TYPES
     web: WebPolicy = WebPolicy()
+    profile: BusinessProfile = BusinessProfile()
+
+    @field_validator("actions")
+    @classmethod
+    def _actions(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        unknown = [a for a in value if a not in ACTION_TYPES]
+        if unknown:
+            raise ValueError(f"알 수 없는 행동 유형: {', '.join(unknown)}")
+        return tuple(dict.fromkeys(value))
 
     @field_validator("name")
     @classmethod
@@ -106,12 +182,17 @@ def render_workspace_toml(cfg: WorkspaceConfig) -> str:
         f"redact_pii = {'true' if cfg.redact_pii else 'false'}\n"
         f"budget_monthly_usd = {cfg.budget_monthly_usd}\n"
         f"reuse_max_age_days = {cfg.reuse_max_age_days}\n"
+        f"knowledge = {'true' if cfg.knowledge else 'false'}\n"
+        f"actions = {_toml_list(cfg.actions)}\n"
         "\n[web]\n"
         f"allowed_domains = {_toml_list(web.allowed_domains)}\n"
         f"blocked_domains = {_toml_list(web.blocked_domains)}\n"
         f"max_searches_per_task = {web.max_searches_per_task}\n"
         f"max_fetches_per_task = {web.max_fetches_per_task}\n"
         f"fetch_max_content_tokens = {web.fetch_max_content_tokens}\n"
+        "\n[profile]\n"
+        + "".join(f"{name} = {_toml_str(getattr(cfg.profile, name))}\n"
+                  for name in ("business_type", *dict(PROFILE_FIELDS)))
     )
 
 

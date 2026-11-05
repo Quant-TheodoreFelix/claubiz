@@ -118,6 +118,9 @@ class ModelsConfig(Strict):
     planner: RoleConfig = RoleConfig(model="claude-opus-5-5", effort="medium", max_tokens=16000, effort_max="high")
     worker: RoleConfig = RoleConfig(model="claude-opus-5-5", effort="low", max_tokens=16000, effort_max="high")
     synthesizer: RoleConfig = RoleConfig(model="claude-opus-5-5", effort="medium", max_tokens=32000, effort_max="high")
+    helper: RoleConfig = RoleConfig(
+        model="claude-haiku-5-5", effort="low", max_tokens=8000, effort_max="medium", fallbacks=False
+    )
 
 
 class OrchestratorConfig(Strict):
@@ -243,6 +246,13 @@ model = "claude-opus-5-5"
 effort = "medium"
 max_tokens = 32000
 effort_max = "high"
+
+[models.helper]
+model = "claude-haiku-5-5"
+effort = "low"
+max_tokens = 8000
+effort_max = "medium"
+fallbacks = false
 
 [orchestrator]
 max_parallel = 4
