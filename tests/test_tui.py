@@ -148,7 +148,7 @@ async def test_direct_run_from_tui():
         await _run_once(app, pilot)
         record = next(iter(app.history.values()))
         assert record["mode"] == "direct" and record["status"] == "completed"
-        assert {c[0] for c in app.runtime.llm.calls} == {"worker"}
+        assert {c[0] for c in app.runtime.llm.calls} == {"worker", "helper"}
         assert "바로" in str(app.query_one("#runs", DataTable).get_row_at(0)[2])
 
 
@@ -198,7 +198,7 @@ async def test_workspace_context_menu_delete():
         assert isinstance(app.screen, ContextMenu)
         assert app.ws.name == "beta"
         menu = app.screen.query_one("#context-menu")
-        menu.highlighted = 3
+        menu.highlighted = 4
         await pilot.press("enter")
         await pilot.pause()
         assert isinstance(app.screen, ConfirmModal)

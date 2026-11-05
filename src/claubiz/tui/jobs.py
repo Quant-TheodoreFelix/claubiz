@@ -127,6 +127,12 @@ class Job:
     state: tuple[str, str] = ("", MUTED)
     report: bool = False
     seen: bool = True
+    kind: str = "run"
+    digest_id: str = ""
+
+    @property
+    def key(self) -> str:
+        return f"{self.ws.name}/{self.digest_id}" if self.kind == "digest" else self.ws.name
 
     @property
     def name(self) -> str:

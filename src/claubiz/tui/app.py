@@ -30,31 +30,44 @@ from textual.widgets import (
 from textual.widgets.option_list import Option, OptionDoesNotExist
 
 from .. import eventfmt
+from ..actions import TYPE_LABELS, ActionError, ActionStore, preview_markdown
+from ..agent import plist_path
 from ..brief import generate_brief
 from ..budget import cycle_start
 from ..config import MODEL_CHOICES, MODEL_ROLES, ConfigError, Settings, load_settings, model_label
+from ..derived import derived_counts, purge_derived
+from ..digest import DigestClaim, DigestError, DigestSpec, DigestStore, finish_digest, start_digest
 from ..events import Event
+from ..knowledge import KnowledgeStore
+from ..orchestrator import FOLLOWABLE as RECORD_FOLLOWABLE
 from ..orchestrator import RunError
-from ..planner import estimate_plan
+from ..planner import estimate_plan, finish_estimate
 from ..playbooks import Playbook, all_playbooks
-from ..policy import scope_allows_inputs
-from ..workspace import Workspace, WorkspaceError, new_run_id, report_classification
+from ..policy import scope_allows_inputs, scope_allows_web
+from ..workspace import REPORT_FOOTER, Workspace, WorkspaceError, new_run_id, report_classification
 from .compositor import install as install_compositor_fix
 from .jobs import FINISHED_PHASES, ActivityLog, Draft, Job, LogBuffer, clock_text
 from .modals import (
+    ActionExportModal,
     BriefModal,
     ConfirmModal,
     ContextMenu,
     CreateWorkspaceModal,
+    DigestModal,
     ExportModal,
     ImportModal,
     PlaybookModal,
+    ProfileModal,
     RunImportModal,
     RunViewerModal,
 )
 from .theme import CLAY, ERROR, FAINT, MUTED, PERIWINKLE, STATUS_STYLES, SUCCESS, THEMES, WARNING
 from .widgets import (
+    ActionsTable,
     BudgetMeter,
+    DigestsTable,
+    FactsTable,
+    FitTable,
     InputsTable,
     JobsCard,
     RunsTable,
@@ -98,7 +111,23 @@ ESC_REPEAT_GAP = 0.16
 ESC_HINT_AFTER = 0.3
 ESC_HOLD_SECONDS = 2.0
 CARD_CELLS = 26
-TAB_FOCUS = {"tab-run": "#goal", "tab-history": "#runs", "tab-inputs": "#inputs"}
+TAB_FOCUS = {"tab-run": "#goal", "tab-history": "#runs", "tab-inputs": "#inputs", "tab-digests": "#digests",
+             "tab-actions": "#action-list"}
+DIGEST_CHECK_SECONDS = 30
+NARROW_LABELS = {
+    "#new-pb": ("+", "+ 플레이북"),
+    "#import": ("+ 자료", "+ 자료 가져오기"),
+    "#import-run": ("+ 다른 영역", "+ 다른 작업 영역 기록"),
+    "#edit-brief": ("지침", "지침 편집"),
+    "#edit-profile": ("프로필", "업무 프로필"),
+}
+ACTION_STATUS = {"pending": ("●", "승인 대기", CLAY), "done": ("✓", "파일 생성", SUCCESS),
+                 "rejected": ("○", "거절", FAINT)}
+DIGEST_RESULT = {"completed": ("완료", SUCCESS), "partial": ("일부 완료", WARNING), "failed": ("실패", ERROR),
+                 "cancelled": ("중단", WARNING), "running": ("실행 중", CLAY)}
+
+
+CLASS_STYLE = {"public": MUTED, "internal": CLAY, "confidential": ERROR}
 
 
 def _pad(label: str, cells: int) -> str:
@@ -130,7 +159,7 @@ def _short(text: str, width: int) -> str:
 def _reset_table(table: DataTable) -> None:
     table.clear()
     for column in table.columns.values():
-        column.content_width = 0
+        column.content_width = cell_len(column.label.plain)
 
 
 def _fit(text: str, cells: int) -> str:
@@ -154,6 +183,8 @@ class ClaubizApp(App[None]):
         Binding("f2", "show_tab('tab-run')", "실행 탭", show=False, priority=True),
         Binding("f3", "show_tab('tab-history')", "기록", show=False, priority=True),
         Binding("f4", "show_tab('tab-inputs')", "자료", show=False, priority=True),
+        Binding("f1", "show_tab('tab-digests')", "정기 정리", show=False, priority=True),
+        Binding("f10", "show_tab('tab-actions')", "제안", show=False, priority=True),
         Binding("f7", "open_report", "보고서", priority=True),
         Binding("ctrl+o", "import_inputs", "자료 가져오기", show=False, priority=True),
         Binding("ctrl+q", "quit", "종료"),
@@ -161,7 +192,9 @@ class ClaubizApp(App[None]):
     MAIN_SCREEN_ACTIONS = frozenset({
         "new_workspace", "plan", "direct", "execute", "cancel", "show_tab", "open_report", "import_inputs",
         "follow_up", "delete_run", "delete_workspace", "edit_brief", "new_playbook", "export_report", "import_runs",
-        "goto_ws", "delete_input",
+        "goto_ws", "delete_input", "propose_actions", "delete_fact", "run_digest", "toggle_digest", "edit_digest",
+        "delete_digest", "new_digest", "approve_action", "reject_action", "open_action", "export_action",
+        "delete_action", "edit_profile",
     })
 
     def __init__(self, initial_workspace: str | None = None, runtime_factory: Callable | None = None) -> None:
@@ -183,6 +216,11 @@ class ClaubizApp(App[None]):
         self.playbooks: dict[str, Playbook] = all_playbooks()
         self.jobs: dict[str, Job] = {}
         self.runs: dict[str, Job] = {}
+        self.digest_jobs: dict[str, Job] = {}
+        self.digest_specs: dict[str, DigestSpec] = {}
+        self.facts_by_id: dict = {}
+        self.action_items: dict = {}
+        self.now: Callable[[], datetime] = datetime.now
         self.drafts: dict[str, Draft] = {}
         self.model_pref: str | None = None
         self.idle_log = LogBuffer()
@@ -234,7 +272,7 @@ class ClaubizApp(App[None]):
                                 yield Static("", id="run-state")
                         yield Static("", id="plan-card", classes="card")
                         with Horizontal(id="run-split"):
-                            tasks = DataTable(id="tasks", cursor_type="row", zebra_stripes=False, classes="card")
+                            tasks = FitTable(id="tasks", cursor_type="row", zebra_stripes=False, classes="card")
                             tasks.border_title = "작업"
                             yield tasks
                             log = ActivityLog(id="log", classes="card")
@@ -252,13 +290,35 @@ class ClaubizApp(App[None]):
                             yield Button("+ 자료 가져오기", id="import", classes="ghost")
                             yield Button("+ 다른 작업 영역 기록", id="import-run", classes="ghost")
                             yield Button("지침 편집", id="edit-brief", classes="ghost")
+                            yield Button("업무 프로필", id="edit-profile", classes="ghost")
                             yield Static("", id="brief-state")
                         inputs = InputsTable(id="inputs", cursor_type="row", classes="card")
                         inputs.border_title = "입력 자료 · Del 제거"
                         yield inputs
+                        facts = FactsTable(id="facts", cursor_type="row", classes="card")
+                        facts.border_title = "누적 지식 · Del 제거"
+                        yield facts
+                        yield Static("", id="fact-detail")
                         policy = Static("", id="policy", classes="card")
                         policy.border_title = "정책"
                         yield policy
+                    with TabPane("정기 정리", id="tab-digests"):
+                        with Horizontal(id="digest-actions"):
+                            yield Button("+ 새 정기 정리", id="new-digest", classes="ghost")
+                            yield Static("", id="agent-state")
+                        digests = DigestsTable(id="digests", cursor_type="row", classes="card")
+                        digests.border_title = "정기 정리 · R 지금 실행 · Space 켜기/끄기 · E 편집 · Del 제거"
+                        yield digests
+                        with VerticalScroll(id="digest-preview-box", classes="card") as digest_box:
+                            digest_box.border_title = "최근 결과"
+                            yield Markdown("", open_links=False, id="digest-preview")
+                    with TabPane("제안", id="tab-actions"):
+                        actions = ActionsTable(id="action-list", cursor_type="row", classes="card")
+                        actions.border_title = "행동 제안 · Y 승인 · N 거절 · O 열기 · C 복사 · Del 제거"
+                        yield actions
+                        with VerticalScroll(id="action-preview-box", classes="card") as action_box:
+                            action_box.border_title = "미리보기"
+                            yield Markdown("", open_links=False, id="action-preview")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -282,12 +342,17 @@ class ClaubizApp(App[None]):
         self._reload_workspaces(select=self.initial_workspace)
         self._refresh_meter()
         self.set_interval(1.0, self._tick)
+        self.set_interval(DIGEST_CHECK_SECONDS, self._check_digests)
+        self.set_timer(2.0, self._check_digests)
 
     def on_resize(self, event: events.Resize) -> None:
         narrow = event.size.width < 140
         self.screen.set_class(narrow, "-narrow")
         with suppress(NoMatches):
-            self.query_one("#new-pb", Button).label = "+" if narrow else "+ 플레이북"
+            for selector, (short, full) in NARROW_LABELS.items():
+                button = self.query_one(selector, Button)
+                button.label = short if narrow else full
+                button.refresh(layout=True)
 
     def _setup_tables(self) -> None:
         tasks = self.query_one("#tasks", DataTable)
@@ -301,6 +366,17 @@ class ClaubizApp(App[None]):
         inputs = self.query_one("#inputs", DataTable)
         for label, key in (("파일", "name"), ("등급", "class"), ("글자 수", "chars"), ("가져온 시각", "at")):
             inputs.add_column(label, key=key)
+        facts = self.query_one("#facts", DataTable)
+        for label, key in (("날짜", "as_of"), ("주제", "topic"), ("내용", "text"), ("등급", "class")):
+            facts.add_column(label, key=key)
+        digests = self.query_one("#digests", DataTable)
+        for label, key in (("이름", "title"), ("일정", "schedule"), ("다음 실행", "next"), ("상태", "state"),
+                           ("최근 결과", "last"), ("모델", "model"), ("상한", "cap")):
+            digests.add_column(label, key=key)
+        actions = self.query_one("#action-list", DataTable)
+        for label, key in (("생성", "created"), ("유형", "type"), ("제목", "title"), ("상태", "status"),
+                           ("등급", "class")):
+            actions.add_column(label, key=key)
 
     @property
     def cursor_position(self) -> Offset:
@@ -407,12 +483,16 @@ class ClaubizApp(App[None]):
             self.action_cancel()
 
     def _tick(self) -> None:
-        if not any(job.active for job in self.jobs.values()):
+        digests = [job for job in self.digest_jobs.values() if job.active]
+        if not digests and not any(job.active for job in self.jobs.values()):
             return
         job = self._job()
         if job is not None and job.active:
             self._paint_state()
         self._paint_jobs_card()
+        for digest_job in digests:
+            if self._is_selected(digest_job):
+                self._refresh_digest_row(digest_job.digest_id)
 
     def _ws_label(self, name: str) -> Text:
         text = Text(name, style="bold")
@@ -459,6 +539,8 @@ class ClaubizApp(App[None]):
         def chosen(action: str | None) -> None:
             if action == "brief":
                 self.action_edit_brief()
+            elif action == "profile":
+                self.action_edit_profile()
             elif action == "import":
                 self.action_import_inputs()
             elif action == "runs":
@@ -466,15 +548,15 @@ class ClaubizApp(App[None]):
             elif action == "delete":
                 self.action_delete_workspace(name)
 
-        items = [("지침 편집", "brief"), ("자료 가져오기", "import"), ("다른 영역 기록 가져오기", "runs"),
-                 ("제거", "delete")]
+        items = [("지침 편집", "brief"), ("업무 프로필", "profile"), ("자료 가져오기", "import"),
+                 ("다른 영역 기록 가져오기", "runs"), ("제거", "delete")]
         self.push_screen(ContextMenu(items, event.offset, title=name), chosen)
 
-    def action_goto_ws(self, name: str) -> None:
+    def action_goto_ws(self, name: str, tab: str = "tab-run") -> None:
         option_list = self.query_one("#ws-list", WorkspaceList)
         with suppress(OptionDoesNotExist):
             option_list.highlighted = option_list.get_option_index(name)
-            self.action_show_tab("tab-run")
+            self.action_show_tab(tab)
 
     def _save_draft(self) -> None:
         if self.ws is None:
@@ -518,6 +600,9 @@ class ClaubizApp(App[None]):
             self._restore_composer()
             self._fill_history()
             self._fill_inputs()
+            self._fill_facts()
+            self._fill_digests()
+            self._fill_actions()
             self._paint_job()
             self._paint_jobs_card()
             return
@@ -539,6 +624,9 @@ class ClaubizApp(App[None]):
         self._fill_history()
         self._fill_card()
         self._fill_inputs()
+        self._fill_facts()
+        self._fill_digests()
+        self._fill_actions()
         self._paint_job()
         self._paint_jobs_card()
 
@@ -561,9 +649,19 @@ class ClaubizApp(App[None]):
             source = f"차단 {len(web.blocked_domains)}개 도메인"
         else:
             source = "제한 없음"
+        try:
+            facts = len(KnowledgeStore(ws).facts())
+            specs = DigestStore(ws).load()
+            pending = ActionStore(ws).pending()
+        except (OSError, ValueError):
+            facts, specs, pending = 0, [], 0
         rows = [
             ("범위", SCOPE_LABELS.get(cfg.scope, cfg.scope)),
+            ("유형", cfg.profile.type_label() or "미지정"),
             ("자료", f"{len(ws.inputs())}개" + (" · 지침 있음" if ws.has_brief() else "")),
+            ("지식", f"{facts}개" if cfg.knowledge else "꺼짐"),
+            ("정기 정리", f"{len(specs)}개 · 켜짐 {sum(1 for s in specs if s.enabled)}" if specs else "없음"),
+            ("제안", f"대기 {pending}건" if cfg.actions else "꺼짐"),
             ("실행", f"{len(runs)}회 · 완료 {completed}"),
             ("이번 주기", f"${spent:,.2f}" + (f" / ${cfg.budget_monthly_usd:,.0f}" if cfg.budget_monthly_usd else "")),
             ("출처", source),
@@ -573,6 +671,9 @@ class ClaubizApp(App[None]):
         card.update(_kv(rows, 11))
 
     def _run_label(self, record: dict) -> Text:
+        digest = record.get("digest") or {}
+        if digest:
+            return Text(f"정기 · {_short(str(digest.get('title', '')), 14)}", style=PERIWINKLE)
         playbook = self.playbooks.get(record.get("playbook") or "")
         text = Text(playbook.title if playbook else "자유 목표", style="" if playbook else MUTED)
         if record.get("mode") == "direct":
@@ -633,6 +734,13 @@ class ClaubizApp(App[None]):
         lines = [f"**목표**  {record.get('goal', '').strip()}", ""]
         if self._record_status(record) in RESUMABLE_VIEW:
             lines += ["> 끝나지 않은 실행임. Ctrl+Enter로 완료된 작업은 그대로 두고 남은 작업부터 재개할 수 있음", ""]
+        elif record.get("status") in FOLLOWABLE:
+            learned = record.get("knowledge") or 0
+            proposed = len(record.get("actions") or [])
+            hint = "> A로 이 보고서에 대한 행동 제안을 받을 수 있음" if not proposed else f"> 행동 제안 {proposed}건 · F10"
+            if learned:
+                hint += f" · 지식 {learned}개 추가됨"
+            lines += [hint, ""]
         base = record.get("base_run")
         if base:
             parent = self.history.get(base)
@@ -691,6 +799,7 @@ class ClaubizApp(App[None]):
         import_button = self.query_one("#import", Button)
         runs_button = self.query_one("#import-run", Button)
         brief_button = self.query_one("#edit-brief", Button)
+        self.query_one("#edit-profile", Button).disabled = self.ws is None
         if self.ws is None:
             policy.update("")
             import_button.disabled = True
@@ -702,10 +811,9 @@ class ClaubizApp(App[None]):
         import_button.disabled = not scope_allows_inputs(cfg.scope)
         runs_button.disabled = not scope_allows_inputs(cfg.scope)
         brief_button.disabled = False
-        class_style = {"public": MUTED, "internal": CLAY, "confidential": ERROR}
         for f in self.ws.inputs():
             table.add_row(
-                f.name, Text(f.classification, style=class_style.get(f.classification, MUTED)), f"{f.chars:,}",
+                f.name, Text(f.classification, style=CLASS_STYLE.get(f.classification, MUTED)), f"{f.chars:,}",
                 Text(_local_time(f.imported_at), style=MUTED), key=f.name,
             )
         brief = Text("지침 ", style=MUTED)
@@ -722,6 +830,9 @@ class ClaubizApp(App[None]):
             ("웹 출처", f"{mode} · {domains}"),
             ("작업당 검색/페치", f"{web.max_searches_per_task} / {web.max_fetches_per_task}"),
             ("조사 재사용", f"{cfg.reuse_max_age_days}일 이내"),
+            ("누적 지식", "켜짐 · 출처 있는 사실만 저장" if cfg.knowledge else "꺼짐"),
+            ("행동 제안", ", ".join(TYPE_LABELS[a] for a in cfg.actions) + " · 승인해야 파일 생성"
+             if cfg.actions else "꺼짐"),
             ("월 예산", f"${cfg.budget_monthly_usd:,.2f}" if cfg.budget_monthly_usd else "전체 예산 공유"),
         ]
         policy.update(_kv(rows, 18))
@@ -845,6 +956,7 @@ class ClaubizApp(App[None]):
         selected = self.ws.name if self.ws is not None else None
         shown = [job for job in self.jobs.values()
                  if job.name != selected and (job.busy or (job.phase in FINISHED_PHASES and not job.seen))]
+        shown += [job for job in self.digest_jobs.values() if job.active]
         if not shown:
             card.display = False
             card.targets = []
@@ -859,7 +971,7 @@ class ClaubizApp(App[None]):
                 line += 2
             start = line
             color = CLAY if job.busy else PHASE_COLORS.get(job.phase, MUTED)
-            label = PHASE_LABELS.get(job.phase, job.phase)
+            label = ("정기 " if job.kind == "digest" else "") + PHASE_LABELS.get(job.phase, job.phase)
             clock = f" {clock_text(job.elapsed(now))}" if job.started else ""
             text.append("● " if job.active else "○ ", style=color)
             text.append(_fit(job.name, CARD_CELLS - 2 - cell_len(label) - cell_len(clock) - 1), style="bold underline")
@@ -874,9 +986,9 @@ class ClaubizApp(App[None]):
             if last:
                 text.append("\n" + _fit(last, CARD_CELLS), style=FAINT)
                 line += 1
-            targets.append((start, line, job.name))
+            targets.append((start, line, job.name, "tab-digests" if job.kind == "digest" else "tab-run"))
         card.targets = targets
-        card.border_title = "다른 작업 영역"
+        card.border_title = "진행 중인 다른 작업"
         card.update(text)
         card.display = True
 
@@ -911,6 +1023,18 @@ class ClaubizApp(App[None]):
             job.cost += float(event.data.get("cost", 0))
         if event.kind == "synth.started":
             job.state = ("종합 중", CLAY)
+        elif event.kind == "knowledge.started":
+            job.state = ("지식 정리 중", CLAY)
+        elif event.kind == "actions.started":
+            job.state = ("행동 제안 정리 중", CLAY)
+        if job.kind == "digest":
+            with suppress(NoMatches):
+                self._paint_jobs_card()
+                if self._is_selected(job):
+                    self._refresh_digest_row(job.digest_id)
+                    if event.kind in TASK_END_EVENTS or event.kind == "run.started":
+                        self._update_history_row(job)
+            return
         with suppress(NoMatches):
             if not self._is_selected(job):
                 self._paint_jobs_card()
@@ -993,8 +1117,7 @@ class ClaubizApp(App[None]):
                                          synthesize=not session.direct)
                 for task_id in session.prior_states:
                     estimate["tasks"][task_id] = 0.0
-                estimate["total"] = sum(estimate["tasks"].values()) + estimate["synthesizer"]
-                session.estimate = estimate
+                session.estimate = finish_estimate(estimate)
             self._paint_job()
         if value == "claude-fable-5-1":
             self.notify("Fable 5.1은 Opus 5.5보다 토큰 단가가 약 2.5배 높음", title="모델 비용", severity="warning")
@@ -1016,10 +1139,8 @@ class ClaubizApp(App[None]):
     def action_show_tab(self, tab: str) -> None:
         self.query_one("#tabs", TabbedContent).active = tab
         focused = self.screen.focused
-        if focused is None:
-            return
-        panes = [node for node in focused.ancestors_with_self if isinstance(node, TabPane)]
-        if panes and panes[0].id != tab and tab in TAB_FOCUS:
+        panes = [node for node in focused.ancestors_with_self if isinstance(node, TabPane)] if focused else []
+        if tab in TAB_FOCUS and (not panes or panes[0].id != tab):
             self.query_one(TAB_FOCUS[tab]).focus()
 
     async def _generate_brief(self, **kwargs) -> tuple[str, float]:
@@ -1290,8 +1411,12 @@ class ClaubizApp(App[None]):
             return
         record = self.history.get(run_id, {})
         ws = self.ws
+        facts, actions = derived_counts(ws, run_id)
+        derived = ""
+        if facts or actions:
+            derived = f"이 실행에서 나온 지식 {facts}개와 행동 제안 {actions}건(만든 파일 포함)도 함께 삭제됨. "
         detail = (
-            f"'{_short(record.get('goal', run_id), 40)}' 실행 기록과 보고서, 작업 노트가 영구 삭제됨. "
+            f"'{_short(record.get('goal', run_id), 40)}' 실행 기록과 보고서, 작업 노트가 영구 삭제됨. {derived}"
             f"이미 쓴 비용 ${record.get('cost_total', 0):.3f}은 예산 장부에 그대로 남음"
         )
 
@@ -1310,13 +1435,18 @@ class ClaubizApp(App[None]):
                     del self.jobs[job.name]
             try:
                 ws.delete_run(run_id)
-            except (WorkspaceError, OSError) as exc:
+                removed_facts, removed_actions = purge_derived(ws, run_id)
+            except (WorkspaceError, ActionError, OSError) as exc:
                 self.notify(str(exc), title="제거 실패", severity="error")
                 return
-            self.runtime_audit("run.deleted", workspace=ws.name, run_id=run_id)
+            self.runtime_audit("run.deleted", workspace=ws.name, run_id=run_id, knowledge=removed_facts,
+                               actions=removed_actions)
             if self._draft().follow_run == run_id:
                 self._clear_follow()
             self._fill_history()
+            self._fill_facts()
+            self._fill_actions()
+            self._fill_digests()
             self._fill_card()
             self._paint_job()
             self._refresh_ws_label(ws.name)
@@ -1333,7 +1463,7 @@ class ClaubizApp(App[None]):
         if name is None:
             return
         job = self.jobs.get(name)
-        if job is not None and job.active:
+        if (job is not None and job.active) or self._digest_busy(name):
             self.notify("이 작업 영역에서 작업이 진행 중이라 제거할 수 없음", severity="warning")
             return
         try:
@@ -1350,6 +1480,11 @@ class ClaubizApp(App[None]):
             if not ok:
                 return
             job = self.jobs.get(name)
+            if self._digest_busy(name):
+                self.notify("이 작업 영역에서 정기 정리가 진행 중이라 제거할 수 없음", severity="warning")
+                return
+            for key in [k for k, j in self.digest_jobs.items() if j.name == name]:
+                self.runs.pop(self.digest_jobs.pop(key).run_id, None)
             if job is not None:
                 if job.active:
                     self.notify("이 작업 영역에서 작업이 진행 중이라 제거할 수 없음", severity="warning")
@@ -1371,6 +1506,591 @@ class ClaubizApp(App[None]):
             self.notify(f"작업 영역 '{name}'을 제거함", timeout=3)
 
         self.push_screen(ConfirmModal("정말로 제거하시겠습니까?", detail), answered)
+
+    def _cursor_key(self, selector: str) -> str | None:
+        table = self.query_one(selector, DataTable)
+        if not table.row_count:
+            return None
+        return table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+
+    @staticmethod
+    def _keep_cursor(table: DataTable, row: int) -> None:
+        if table.row_count:
+            table.move_cursor(row=min(max(row, 0), table.row_count - 1))
+
+    def _fill_facts(self) -> None:
+        table = self.query_one("#facts", DataTable)
+        row = table.cursor_row
+        _reset_table(table)
+        self.facts_by_id = {}
+        if self.ws is None:
+            table.border_title = "누적 지식"
+            self._show_fact(None)
+            return
+        try:
+            facts = KnowledgeStore(self.ws).facts()
+        except (OSError, ValueError):
+            facts = []
+        facts.sort(key=lambda f: (f.as_of, f.added), reverse=True)
+        for fact in facts:
+            self.facts_by_id[fact.id] = fact
+            table.add_row(
+                Text(fact.as_of, style=MUTED), _short(fact.topic or "-", 16), _short(fact.text, 90),
+                Text(fact.classification, style=CLASS_STYLE.get(fact.classification, MUTED)), key=fact.id,
+            )
+        state = "" if self.ws.config.knowledge else " · 꺼짐 (업무 프로필에서 켜기)"
+        table.border_title = f"누적 지식 {len(facts)}개{state} · Del 제거"
+        self._keep_cursor(table, row)
+        self._show_fact(self._cursor_key("#facts"))
+
+    def _show_fact(self, fact_id: str | None) -> None:
+        detail = self.query_one("#fact-detail", Static)
+        fact = self.facts_by_id.get(fact_id or "")
+        if fact is None:
+            detail.update(Text("실행이 끝나면 보고서에서 출처가 있는 사실만 골라 여기에 쌓음. 다음 실행은 이를 참고해 "
+                               "같은 조사를 반복하지 않음", style=MUTED))
+            return
+        text = Text(fact.text)
+        record = self.history.get(fact.run_id)
+        origin = _short(record.get("goal", ""), 40) if record else f"{fact.run_id} (기록 없음)"
+        text.append(f"\n{fact.as_of} · {' · '.join(fact.sources[:3])} · 실행: {origin}", style=MUTED)
+        detail.update(text)
+
+    @on(DataTable.RowHighlighted, "#facts")
+    def _fact_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        self._show_fact(event.row_key.value if event.row_key else None)
+
+    def action_delete_fact(self) -> None:
+        if self.ws is None:
+            return
+        fact_id = self._cursor_key("#facts")
+        fact = self.facts_by_id.get(fact_id or "")
+        if fact is None:
+            return
+        ws = self.ws
+
+        def answered(ok: bool | None) -> None:
+            if not ok or self.ws is not ws:
+                return
+            try:
+                removed = KnowledgeStore(ws).remove([fact.id])
+            except OSError as exc:
+                self.notify(str(exc), title="제거 실패", severity="error")
+                return
+            if removed:
+                self.runtime_audit("knowledge.removed", workspace=ws.name, ids=[fact.id], removed=removed)
+            self._fill_facts()
+            self._fill_card()
+
+        detail = f"'{_short(fact.text, 60)}'. 다음 실행부터 참고하지 않음"
+        self.push_screen(ConfirmModal("이 지식을 지울까요?", detail), answered)
+
+    def action_edit_profile(self) -> None:
+        if self.ws is None:
+            self.notify("먼저 작업 영역을 선택해야 함", severity="warning")
+            return
+        ws = self.ws
+
+        def saved(ok: bool | None) -> None:
+            if not ok:
+                return
+            self.notify("업무 프로필 저장", timeout=3)
+            if self.ws is ws:
+                self._fill_inputs()
+                self._fill_facts()
+                self._fill_actions()
+                self._fill_card()
+
+        self.push_screen(ProfileModal(ws), saved)
+
+    def _digest_busy(self, name: str) -> bool:
+        return any(job.active and job.name == name for job in self.digest_jobs.values())
+
+    def _digest_job(self, digest_id: str) -> Job | None:
+        if self.ws is None:
+            return None
+        job = self.digest_jobs.get(f"{self.ws.name}/{digest_id}")
+        return job if job is not None and job.active else None
+
+    def _digest_row(self, spec: DigestSpec) -> tuple:
+        job = self._digest_job(spec.id)
+        try:
+            due = spec.next_due().strftime("%m-%d %H:%M") if spec.enabled else "-"
+        except ValueError:
+            due = "-"
+        if job is not None:
+            state = Text(f"● 실행 중 {clock_text(job.elapsed(self.clock()))}", style=CLAY)
+        elif not spec.enabled:
+            state = Text("꺼짐" + (" · 연속 실패" if spec.failures >= 3 else ""), style=FAINT)
+        else:
+            state = Text("켜짐", style=SUCCESS)
+        status = spec.last_status
+        if status == "running" and job is None and self.ws is not None:
+            status = "running" if DigestStore(self.ws).is_running(spec.id) else "cancelled"
+        if status:
+            label, color = DIGEST_RESULT.get(status, (status, MUTED))
+            last = Text(f"{label} · {_local_time(spec.last_attempt)[5:]}", style=color)
+        else:
+            last = Text("-", style=FAINT)
+        model = model_label(spec.model) if spec.model else "기본"
+        return (_short(spec.title, 24), spec.schedule, due, state, last, model, f"${spec.run_cap:.2f}")
+
+    def _fill_digests(self) -> None:
+        table = self.query_one("#digests", DataTable)
+        row = table.cursor_row
+        _reset_table(table)
+        self.digest_specs = {}
+        agent = self.query_one("#agent-state", Static)
+        button = self.query_one("#new-digest", Button)
+        if self.ws is None:
+            button.disabled = True
+            agent.update("")
+            self.call_later(self._show_digest_preview, None)
+            return
+        allowed = scope_allows_web(self.ws.config.scope)
+        button.disabled = not allowed
+        try:
+            specs = DigestStore(self.ws).load()
+        except (OSError, ValueError):
+            specs = []
+        for spec in specs:
+            self.digest_specs[spec.id] = spec
+            table.add_row(*self._digest_row(spec), key=spec.id)
+        if not allowed:
+            agent.update(Text("자료 전용 작업 영역이라 정기 정리를 쓸 수 없음", style=MUTED))
+        elif plist_path().is_file():
+            agent.update(Text("백그라운드 실행 등록됨 · TUI를 닫아도 실행", style=SUCCESS))
+        else:
+            agent.update(Text("TUI 실행 중에만 동작 · 상시 실행: claubiz agent install", style=MUTED))
+        self._keep_cursor(table, row)
+        self.call_later(self._show_digest_preview, self._cursor_key("#digests"))
+
+    def _refresh_digest_row(self, digest_id: str) -> None:
+        table = self.query_one("#digests", DataTable)
+        spec = self.digest_specs.get(digest_id)
+        if spec is None or digest_id not in table.rows:
+            return
+        values = self._digest_row(spec)
+        for key, value in zip(("title", "schedule", "next", "state", "last", "model", "cap"), values, strict=True):
+            table.update_cell(digest_id, key, value)
+
+    async def _show_digest_preview(self, digest_id: str | None) -> None:
+        preview = self.query_one("#digest-preview", Markdown)
+        spec = self.digest_specs.get(digest_id or "")
+        if spec is None or self.ws is None:
+            await preview.update(
+                "정기 정리가 없습니다. '+ 새 정기 정리'로 요청과 일정을 정하면 그때마다 에이전트 하나가 지난 실행 이후의 "
+                "새 소식만 찾아 정리합니다. 이미 보고한 링크는 건너뛰어 토큰을 아낍니다."
+            )
+            return
+        model = model_label(spec.model) if spec.model else "설정 기본값"
+        lines = [f"**요청**  {spec.request}", "",
+                 (f"**일정**  {spec.schedule} · 모델 {model} · 검색 {spec.max_searches}회 · 상한 ${spec.run_cap:.2f}"
+                 f" · 보고한 링크 {len(spec.seen_urls)}개 기억")]
+        runs = [r for r in self.history.values() if (r.get("digest") or {}).get("id") == spec.id][:5]
+        if runs:
+            lines += ["", "**최근 실행**", ""]
+            lines += [f"- {_local_time(r.get('created', ''))} · "
+                      f"{STATUS_STYLES.get(self._record_status(r), ('', r.get('status'), ''))[1]}"
+                      f" · ${r.get('cost_total', 0):.3f}" for r in runs]
+        report = self.ws.read_report(spec.last_success_run) if spec.last_success_run else None
+        if report:
+            lines += ["", "---", "", report.rsplit(REPORT_FOOTER, 1)[0].strip()]
+        await preview.update("\n".join(lines))
+
+    @on(DataTable.RowHighlighted, "#digests")
+    async def _digest_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        await self._show_digest_preview(event.row_key.value if event.row_key else None)
+
+    @on(DataTable.RowSelected, "#digests")
+    def _digest_selected(self, event: DataTable.RowSelected) -> None:
+        self.action_edit_digest()
+
+    @on(Button.Pressed, "#new-digest")
+    def _new_digest_pressed(self) -> None:
+        self.action_new_digest()
+
+    @on(Button.Pressed, "#edit-profile")
+    def _profile_pressed(self) -> None:
+        self.action_edit_profile()
+
+    def _digest_saved(self, ws: Workspace) -> Callable[[str | None], None]:
+        def saved(digest_id: str | None) -> None:
+            if not digest_id or self.ws is not ws:
+                return
+            self._fill_digests()
+            self._fill_card()
+            table = self.query_one("#digests", DataTable)
+            with suppress(Exception):
+                table.move_cursor(row=table.get_row_index(digest_id))
+            spec = self.digest_specs.get(digest_id)
+            if spec is not None:
+                self.notify(f"{spec.title} · {spec.schedule} · 다음 실행 {spec.next_due():%m-%d %H:%M}", timeout=4)
+
+        return saved
+
+    def action_new_digest(self) -> None:
+        if self.ws is None:
+            self.notify("먼저 작업 영역을 선택해야 함", severity="warning")
+            return
+        if not scope_allows_web(self.ws.config.scope):
+            self.notify("자료 전용 작업 영역은 정기 정리를 쓸 수 없음", severity="warning")
+            return
+        self.push_screen(DigestModal(self.ws), self._digest_saved(self.ws))
+
+    def action_edit_digest(self) -> None:
+        if self.ws is None:
+            return
+        spec = self.digest_specs.get(self._cursor_key("#digests") or "")
+        if spec is None:
+            self.action_new_digest()
+            return
+        self.push_screen(DigestModal(self.ws, spec), self._digest_saved(self.ws))
+
+    def action_toggle_digest(self) -> None:
+        if self.ws is None:
+            return
+        spec = self.digest_specs.get(self._cursor_key("#digests") or "")
+        if spec is None:
+            return
+        enabled = not spec.enabled
+        changes = {"enabled": enabled, "failures": 0} if enabled else {"enabled": False}
+        try:
+            DigestStore(self.ws).update(spec.id, **changes)
+        except (DigestError, OSError, ValueError) as exc:
+            self.notify(str(exc), title="변경 실패", severity="error")
+            return
+        self.runtime_audit("digest.updated", workspace=self.ws.name, digest_id=spec.id, enabled=enabled)
+        self._fill_digests()
+        self._fill_card()
+
+    def action_delete_digest(self) -> None:
+        if self.ws is None:
+            return
+        spec = self.digest_specs.get(self._cursor_key("#digests") or "")
+        if spec is None:
+            return
+        ws = self.ws
+
+        def answered(ok: bool | None) -> None:
+            if not ok or self.ws is not ws:
+                return
+            if self._digest_job(spec.id) is not None or DigestStore(ws).is_running(spec.id):
+                self.notify("실행 중인 정기 정리는 제거할 수 없음", severity="warning")
+                return
+            try:
+                DigestStore(ws).remove(spec.id)
+            except (DigestError, OSError) as exc:
+                self.notify(str(exc), title="제거 실패", severity="error")
+                return
+            self.runtime_audit("digest.removed", workspace=ws.name, digest_id=spec.id)
+            self._fill_digests()
+            self._fill_card()
+
+        detail = f"'{spec.title}' 일정이 삭제됨. 이미 만든 정리 보고서는 기록 탭에 그대로 남음"
+        self.push_screen(ConfirmModal("정기 정리를 제거할까요?", detail), answered)
+
+    def action_run_digest(self) -> None:
+        if self.ws is None or self.runtime is None:
+            return
+        spec = self.digest_specs.get(self._cursor_key("#digests") or "")
+        if spec is None:
+            return
+        if self._digest_job(spec.id) is not None:
+            self.notify("이미 실행 중임", severity="warning")
+            return
+        claim = DigestStore(self.ws).claim(spec.id, self.now(), force=True)
+        if claim is None:
+            self.notify("이 정기 정리는 다른 곳(백그라운드 실행 등)에서 실행 중임", severity="warning")
+            return
+        self._launch_digest(self.ws, spec, claim)
+
+    def _check_digests(self) -> None:
+        if self.runtime is None:
+            return
+        now = self.now()
+        for name in Workspace.list_names():
+            try:
+                ws = Workspace.open(name)
+                if not scope_allows_web(ws.config.scope):
+                    continue
+                store = DigestStore(ws)
+                due = store.due(now)
+            except (WorkspaceError, OSError, ValueError):
+                continue
+            for spec in due:
+                running = self.digest_jobs.get(f"{name}/{spec.id}")
+                if running is not None and running.active:
+                    continue
+                claim = store.claim(spec.id, now)
+                if claim is not None:
+                    self._launch_digest(ws, spec, claim)
+
+    def _launch_digest(self, ws: Workspace, spec: DigestSpec, claim: DigestClaim) -> Job | None:
+        try:
+            orch, session = start_digest(self.runtime, ws, spec, claim)
+        except Exception as exc:
+            finish_digest(self.runtime, ws, claim, "", "failed")
+            self.notify(f"{ws.name} · {spec.title}: {str(exc)[:160]}", title="정기 정리 실패", severity="error")
+            with suppress(NoMatches):
+                if self.ws is not None and self.ws.name == ws.name:
+                    self._fill_digests()
+            return None
+        job = Job(ws=ws, orch=orch, run_id=session.run_id, goal=spec.title, direct=True, kind="digest",
+                  digest_id=spec.id, model=spec.model or None)
+        job.load_plan(session)
+        job.phase = "running"
+        job.started = self.clock()
+        job.state = ("정기 정리 실행 중", CLAY)
+        job.log.append(f"정기 정리 '{escape(spec.title)}' 시작 ({escape(spec.schedule)})")
+        old = self.digest_jobs.get(job.key)
+        if old is not None:
+            self.runs.pop(old.run_id, None)
+        self.digest_jobs[job.key] = job
+        self.runs[job.run_id] = job
+        job.worker = self.run_worker(self._do_digest(job, claim), group=f"digest:{job.key}", exclusive=True,
+                                     exit_on_error=False)
+        with suppress(NoMatches):
+            if self._is_selected(job):
+                self._fill_history()
+                self._fill_digests()
+            self._paint_jobs_card()
+        return job
+
+    async def _do_digest(self, job: Job, claim: DigestClaim) -> None:
+        status = "failed"
+        report_path = None
+        try:
+            outcome = await job.orch.execute(job.session)
+            status, report_path = outcome.status, outcome.report_path
+            job.phase = outcome.status
+            job.report = report_path is not None
+            job.cost = outcome.cost
+            label = PHASE_LABELS.get(outcome.status, outcome.status)
+            extra = f" · 제안 {len(outcome.proposed)}건 F10" if outcome.proposed else ""
+            self.notify(f"{job.name} · {job.goal} · {label} · ${outcome.cost:.4f}{extra}", title="정기 정리 완료",
+                        timeout=8)
+        except asyncio.CancelledError:
+            record = job.ws.load_run(job.run_id) or {}
+            status = str(record.get("status")) if record.get("status") in RECORD_FOLLOWABLE else "cancelled"
+            job.phase = status
+            raise
+        except Exception as exc:
+            job.phase = "error"
+            job.log.append(f"[{ERROR}]정기 정리 오류: {escape(str(exc))}[/]")
+            self.notify(f"{job.name} · {job.goal}: {str(exc)[:160]}", title="정기 정리 실패", severity="error")
+        finally:
+            job.finished = self.clock()
+            spec = finish_digest(self.runtime, job.ws, claim, job.run_id, status, report_path)
+            if spec is not None and not spec.enabled and status not in FOLLOWABLE:
+                self.notify(f"{job.name} · {job.goal}: 연속 실패로 꺼둠, 정기 정리 탭에서 확인", severity="warning")
+            with suppress(NoMatches):
+                self._refresh_meter()
+                if self._is_selected(job):
+                    self._fill_history()
+                    self._fill_digests()
+                    self._fill_facts()
+                    self._fill_actions()
+                    self._fill_card()
+                self._paint_jobs_card()
+
+    def _fill_actions(self) -> None:
+        table = self.query_one("#action-list", DataTable)
+        row = table.cursor_row
+        _reset_table(table)
+        self.action_items = {}
+        pending = 0
+        if self.ws is not None:
+            try:
+                items = ActionStore(self.ws).list()
+            except (OSError, ValueError):
+                items = []
+            for action in items:
+                self.action_items[action.id] = action
+                pending += action.status == "pending"
+                icon, label, color = ACTION_STATUS.get(action.status, ("○", action.status, MUTED))
+                table.add_row(
+                    Text(_local_time(action.created)[5:], style=MUTED), TYPE_LABELS.get(action.type, action.type),
+                    _short(action.title, 48), Text(f"{icon} {label}", style=color),
+                    Text(action.classification, style=CLASS_STYLE.get(action.classification, MUTED)), key=action.id,
+                )
+        with suppress(NoMatches, KeyError, AttributeError):
+            tab = self.query_one("#tabs", TabbedContent).get_tab("tab-actions")
+            tab.label = f"제안 {pending}" if pending else "제안"
+        state = "" if self.ws is None or self.ws.config.actions else " · 꺼짐 (업무 프로필에서 켜기)"
+        table.border_title = f"행동 제안{state} · Y 승인 · N 거절 · O 열기 · C 복사 · Del 제거"
+        self._keep_cursor(table, row)
+        self.call_later(self._show_action_preview, self._cursor_key("#action-list"))
+
+    async def _show_action_preview(self, action_id: str | None) -> None:
+        preview = self.query_one("#action-preview", Markdown)
+        action = self.action_items.get(action_id or "")
+        if action is None:
+            await preview.update(
+                "제안이 없습니다. 실행이 끝나면 보고서를 바탕으로 메일 초안, 일정, 표, 문서를 제안합니다. 승인해야만 작업 영역 "
+                "outbox에 파일이 만들어지고, 메일은 보내지 않고 초안만 만듭니다. 기록 탭에서 A로 지난 실행에 대한 제안도 "
+                "받을 수 있습니다."
+            )
+            return
+        try:
+            body = preview_markdown(action)
+        except ValueError as exc:
+            body = f"제안 내용이 올바르지 않음: {exc}"
+        record = self.history.get(action.run_id)
+        origin = _short(record.get("goal", ""), 60) if record else action.run_id
+        notes = [f"> 출처 실행: {origin} · 등급 {action.classification}"]
+        if action.status == "pending":
+            notes.append("> Y로 승인하면 작업 영역 outbox에 파일을 만듦. 보내거나 등록하지 않으며 O로 열어 직접 처리")
+        elif action.status == "done":
+            notes.append(f"> 파일: outbox/{action.output} · O로 열기 · C로 다른 폴더에 복사")
+        await preview.update("\n\n".join(notes) + "\n\n" + body)
+
+    @on(DataTable.RowHighlighted, "#action-list")
+    async def _action_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        await self._show_action_preview(event.row_key.value if event.row_key else None)
+
+    def _cursor_action(self):
+        return self.action_items.get(self._cursor_key("#action-list") or "")
+
+    def _confirm_confidential(self, action, verb: str, then: Callable[[], None]) -> None:
+        if action.classification != "confidential":
+            then()
+            return
+
+        def answered(ok: bool | None) -> None:
+            if ok:
+                then()
+
+        detail = "confidential 자료로 만든 제안임. 파일을 다루기 전에 보관 위치와 공유 대상을 확인해야 함"
+        self.push_screen(ConfirmModal("기밀 등급 제안", detail, confirm_label=verb), answered)
+
+    def action_approve_action(self) -> None:
+        action = self._cursor_action()
+        if self.ws is None or action is None or action.status != "pending":
+            return
+        ws = self.ws
+
+        def approve() -> None:
+            try:
+                done = ActionStore(ws).approve(action.id)
+            except (ActionError, OSError) as exc:
+                self.notify(str(exc), title="승인 실패", severity="error")
+                return
+            self.runtime_audit("action.approved", workspace=ws.name, action_id=done.id, type=done.type,
+                               output=done.output, sha256=done.sha256, classification=done.classification)
+            self.notify(f"만듦: {done.output} · O로 열기", title="제안 승인", timeout=5)
+            if self.ws is ws:
+                self._fill_actions()
+                self._fill_card()
+
+        self._confirm_confidential(action, "만들기", approve)
+
+    def action_reject_action(self) -> None:
+        action = self._cursor_action()
+        if self.ws is None or action is None or action.status != "pending":
+            return
+        try:
+            ActionStore(self.ws).reject(action.id)
+        except (ActionError, OSError) as exc:
+            self.notify(str(exc), title="거절 실패", severity="error")
+            return
+        self.runtime_audit("action.rejected", workspace=self.ws.name, action_id=action.id)
+        self._fill_actions()
+        self._fill_card()
+
+    def action_open_action(self) -> None:
+        action = self._cursor_action()
+        if self.ws is None or action is None:
+            return
+        if action.status != "done":
+            self.notify("Y로 승인해 파일을 만든 뒤 열 수 있음", severity="warning")
+            return
+        ws = self.ws
+
+        def open_file() -> None:
+            try:
+                path = ActionStore(ws).open_output(action.id)
+            except (ActionError, OSError, ValueError) as exc:
+                self.notify(str(exc), title="열기 실패", severity="error")
+                return
+            self.runtime_audit("action.opened", workspace=ws.name, action_id=action.id, output=path.name)
+            self.notify(path.name, title="기본 앱으로 열기", timeout=3)
+
+        self._confirm_confidential(action, "열기", open_file)
+
+    def action_export_action(self) -> None:
+        action = self._cursor_action()
+        if self.ws is None or action is None:
+            return
+        if action.status != "done":
+            self.notify("Y로 승인해 파일을 만든 뒤 복사할 수 있음", severity="warning")
+            return
+        ws = self.ws
+
+        def done(path: str | None) -> None:
+            if not path:
+                return
+            folder = str(Path(path).parent)
+            self.export_dir = folder.replace(str(Path.home()), "~", 1).rstrip("/") + "/"
+            self.notify(path, title="파일을 복사함", timeout=6)
+
+        self._confirm_confidential(
+            action, "복사", lambda: self.push_screen(ActionExportModal(ws, action.id, action.output, self.export_dir),
+                                                    done),
+        )
+
+    def action_delete_action(self) -> None:
+        action = self._cursor_action()
+        if self.ws is None or action is None:
+            return
+        ws = self.ws
+
+        def answered(ok: bool | None) -> None:
+            if not ok or self.ws is not ws:
+                return
+            try:
+                ActionStore(ws).remove(action.id)
+            except (ActionError, OSError) as exc:
+                self.notify(str(exc), title="제거 실패", severity="error")
+                return
+            self.runtime_audit("action.deleted", workspace=ws.name, action_id=action.id, output=action.output)
+            self._fill_actions()
+            self._fill_card()
+
+        extra = f" outbox의 '{action.output}' 파일도 함께 삭제됨" if action.output else ""
+        self.push_screen(ConfirmModal("제안을 제거할까요?", f"'{_short(action.title, 50)}'.{extra}"), answered)
+
+    def action_propose_actions(self) -> None:
+        if self.ws is None or self.runtime is None:
+            return
+        run_id = self._cursor_run()
+        record = self.history.get(run_id or "")
+        if record is None or record.get("status") not in FOLLOWABLE or not self.ws.report_size(run_id):
+            self.notify("보고서가 있는 완료된 실행에서만 제안을 받을 수 있음", severity="warning")
+            return
+        if not self.ws.config.actions:
+            self.notify("이 작업 영역은 행동 제안이 꺼져 있음 (업무 프로필에서 켜기)", severity="warning")
+            return
+        self.notify("행동 제안을 정리하는 중", timeout=3)
+        self.run_worker(self._do_propose(self.ws, run_id), group=f"propose:{self.ws.name}", exclusive=True,
+                        exit_on_error=False)
+
+    async def _do_propose(self, ws: Workspace, run_id: str) -> None:
+        orch = self.runtime.orchestrator(ws)
+        try:
+            ids = await orch.propose_actions(run_id)
+        except Exception as exc:
+            self.notify(str(exc)[:200], title="행동 제안 실패", severity="error")
+            return
+        finally:
+            self._refresh_meter()
+        self.notify(f"제안 {len(ids)}건 · F10에서 확인" if ids else "이 보고서에서는 제안할 행동이 없음",
+                    title="행동 제안", timeout=5)
+        with suppress(NoMatches):
+            if self.ws is not None and self.ws.name == ws.name:
+                self._fill_actions()
+                self._fill_history()
+                self._fill_card()
 
     def runtime_audit(self, event: str, **data) -> None:
         if self.runtime is not None:
@@ -1512,8 +2232,14 @@ class ClaubizApp(App[None]):
         try:
             outcome = await job.orch.execute(job.session)
         except asyncio.CancelledError:
-            job.phase = "cancelled"
-            job.state = ("중단됨 · 기록 탭에서 Ctrl+Enter로 재개", WARNING)
+            record = job.ws.load_run(job.run_id) or {}
+            if record.get("status") in RECORD_FOLLOWABLE:
+                job.phase = str(record["status"])
+                job.report = True
+                job.state = ("완료 · 후속 정리 중단", WARNING)
+            else:
+                job.phase = "cancelled"
+                job.state = ("중단됨 · 기록 탭에서 Ctrl+Enter로 재개", WARNING)
             raise
         except Exception as exc:
             job.log.append(f"[{ERROR}]실행 오류: {escape(str(exc))}[/]")
@@ -1528,8 +2254,9 @@ class ClaubizApp(App[None]):
             label = PHASE_LABELS.get(outcome.status, outcome.status)
             job.state = (f"종료 · {label} · ${outcome.cost:.4f}", PHASE_COLORS.get(outcome.status, CLAY))
             if outcome.report_path:
-                self.notify(f"{job.name} · {label} · ${outcome.cost:.4f} · F7로 보고서 보기", title="실행 완료",
-                            timeout=8)
+                extra = f" · 제안 {len(outcome.proposed)}건 F10" if outcome.proposed else ""
+                self.notify(f"{job.name} · {label} · ${outcome.cost:.4f} · F7로 보고서 보기{extra}",
+                            title="실행 완료", timeout=8)
             else:
                 self.notify(f"{job.name} · {label}", title="실행 종료", severity="warning", timeout=8)
         finally:
@@ -1540,6 +2267,8 @@ class ClaubizApp(App[None]):
                 if self._is_selected(job):
                     self._fill_history()
                     self._fill_card()
+                    self._fill_facts()
+                    self._fill_actions()
             self._job_changed(job)
 
     def action_cancel(self) -> None:

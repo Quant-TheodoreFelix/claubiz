@@ -57,31 +57,62 @@ def human_size(size: int) -> str:
     return f"{value:,.1f} MB"
 
 
-class RunsTable(DataTable):
+class FitTable(DataTable):
+    def _update_dimensions(self, new_rows) -> None:
+        super()._update_dimensions(new_rows)
+        self._clear_caches()
+        self.refresh()
+
+
+class RunsTable(FitTable):
     BINDINGS = [
         Binding("ctrl+enter", "app.follow_up", "이어서 작업 또는 재개"),
         Binding("c", "app.export_report", "보고서 복사"),
+        Binding("a", "app.propose_actions", "행동 제안 받기"),
         Binding("delete,backspace", "app.delete_run", "기록 제거"),
     ]
 
 
-class InputsTable(DataTable):
+class FactsTable(FitTable):
+    BINDINGS = [Binding("delete,backspace", "app.delete_fact", "지식 제거")]
+
+
+class DigestsTable(FitTable):
+    BINDINGS = [
+        Binding("r", "app.run_digest", "지금 실행"),
+        Binding("space", "app.toggle_digest", "켜기/끄기"),
+        Binding("e", "app.edit_digest", "편집"),
+        Binding("delete,backspace", "app.delete_digest", "제거"),
+    ]
+
+
+class ActionsTable(FitTable):
+    BINDINGS = [
+        Binding("y", "app.approve_action", "승인"),
+        Binding("n", "app.reject_action", "거절"),
+        Binding("o", "app.open_action", "열기"),
+        Binding("c", "app.export_action", "복사"),
+        Binding("delete,backspace", "app.delete_action", "제거"),
+    ]
+
+
+class InputsTable(FitTable):
     BINDINGS = [Binding("delete,backspace", "app.delete_input", "자료 제거")]
 
 
 class JobsCard(Static):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.targets: list[tuple[int, int, str]] = []
+        self.targets: list[tuple[int, int, str, str]] = []
 
     def on_click(self, event: events.Click) -> None:
         offset = event.get_content_offset(self)
         if offset is None:
             return
-        for start, end, name in self.targets:
+        for start, end, name, tab in self.targets:
             if start <= offset.y < end:
                 event.stop()
-                self.app.action_goto_ws(name)
+                self.app.action_goto_ws(name, tab)
                 return
 
 

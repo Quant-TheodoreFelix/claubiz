@@ -312,6 +312,10 @@ Tabs > #tabs-scroll > Underline > .underline--bar {
     margin-left: 0;
 }
 
+#edit-profile {
+    margin-left: 1;
+}
+
 #brief-state {
     width: 1fr;
     content-align: right middle;
@@ -327,6 +331,52 @@ Tabs > #tabs-scroll > Underline > .underline--bar {
 #policy {
     height: auto;
     margin-top: 1;
+}
+
+#facts {
+    height: 1fr;
+    margin-top: 1;
+}
+
+#fact-detail {
+    height: auto;
+    max-height: 4;
+    padding: 0 2;
+}
+
+#digest-actions {
+    height: 3;
+}
+
+#agent-state {
+    width: 1fr;
+    content-align: right middle;
+    height: 3;
+    padding-right: 1;
+}
+
+#digests {
+    height: 1fr;
+    min-height: 6;
+}
+
+#digest-preview-box,
+#action-preview-box {
+    height: 2fr;
+    margin-top: 1;
+    scrollbar-size-vertical: 1;
+}
+
+#action-list {
+    height: 1fr;
+    min-height: 6;
+}
+
+#digest-preview,
+#action-preview {
+    margin: 0;
+    padding: 0;
+    background: $background;
 }
 
 DataTable {
@@ -563,7 +613,9 @@ ModalScreen {
 }
 
 #brief-box,
-#playbook-box {
+#playbook-box,
+#profile-box,
+#digest-box {
     width: 92;
     height: auto;
     max-height: 94%;
@@ -585,6 +637,18 @@ ModalScreen {
 
 #brief-box #f-brief {
     height: 18;
+}
+
+.focus-area {
+    height: 5;
+}
+
+#d-request {
+    height: 7;
+}
+
+#d-next {
+    padding: 1 0 0 0;
 }
 
 #f-brief,

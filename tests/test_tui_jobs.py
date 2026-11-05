@@ -155,7 +155,7 @@ async def test_resume_cancelled_run_from_history():
         await pilot.press("f6")
         await app.workers.wait_for_complete()
         await pilot.pause()
-        assert {c[1] for c in fake.calls[before:]} == {"t4", "synth"}
+        assert {c[1] for c in fake.calls[before:] if c[0] != "helper"} == {"t4", "synth"}
         assert Workspace.open("acme").load_run(run_id)["status"] == "completed"
         assert app.query_one("#runs", DataTable).row_count == 1
 
