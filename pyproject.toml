@@ -42,4 +42,5 @@ dev = [
 [tool.ruff.lint.per-file-ignores]
 "src/claubiz/tui/*.py" = ["BLE001", "RUF012", "SIM117"]
 "src/claubiz/orchestrator.py" = ["BLE001"]
+"src/claubiz/digest.py" = ["BLE001"]
 "src/claubiz/secrets.py" = ["BLE001"]

@@ -112,8 +112,8 @@ async def test_direct_run_skips_planner_and_synth(tmp_path):
     assert task.use_web and task.inputs == ["memo.md"] and task.effort == "medium"
     assert session.estimate["synthesizer"] == 0.0
     outcome = await orch.execute(session)
-    roles = {c[0] for c in fake.calls}
-    assert roles == {"worker"}
+    roles = [c[0] for c in fake.calls]
+    assert set(roles) == {"worker", "helper"} and roles.count("helper") == 2
     assert outcome.status == "completed"
     report = outcome.report_path.read_text(encoding="utf-8")
     assert "t1 노트" in report and "### 출처" in report

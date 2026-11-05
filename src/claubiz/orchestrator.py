@@ -9,10 +9,20 @@ from pathlib import Path
 import anthropic
 from pydantic import ValidationError
 
+from .actions import PROPOSAL_SCHEMA, ActionStore, parse_proposals
 from .audit import AuditLog
 from .budget import BudgetExceeded, BudgetGuard, Ledger, ReservationPool
 from .config import MODEL_ROLES, ConfigError, Settings, with_model
 from .events import EventBus
+from .knowledge import (
+    EXTRACT_SCHEMA,
+    Fact,
+    KnowledgeStore,
+    fact_sources,
+    facts_block,
+    parse_extraction,
+    select_facts,
+)
 from .llm import LLM, CallContext, RefusalError, web_tools
 from .paths import write_private_text
 from .planner import (
@@ -24,14 +34,23 @@ from .planner import (
     PlannedTask,
     build_context,
     estimate_plan,
+    finish_estimate,
     planner_message,
     validate_plan,
 )
 from .playbooks import Playbook, get_playbook
-from .policy import redact_pii
-from .prompts import DIRECT_SYSTEM, PLANNER_SYSTEM, SYNTH_SYSTEM, WORKER_SYSTEM
+from .policy import CLASS_RANK, redact_pii
+from .prompts import (
+    ACTIONS_SYSTEM,
+    DIGEST_SYSTEM,
+    DIRECT_SYSTEM,
+    KNOWLEDGE_SYSTEM,
+    PLANNER_SYSTEM,
+    SYNTH_SYSTEM,
+    WORKER_SYSTEM,
+)
 from .render import plain_text, render, unknown_urls, urls_in
-from .workspace import RUN_ID_RE, Workspace, new_run_id
+from .workspace import REPORT_FOOTER, RUN_ID_RE, Workspace, new_run_id
 
 MAX_GOAL_CHARS = 4000
 MAX_TOKENS_CEILING = 64000
@@ -39,6 +58,13 @@ MAX_BASE_REPORT_CHARS = 24000
 DIRECT_INPUT_CHARS = 120000
 FOLLOWABLE = ("completed", "partial")
 RESUMABLE = ("cancelled", "failed", "running")
+TASK_FACTS = 8
+TASK_FACT_CHARS = 1600
+SYNTH_FACTS = 25
+SYNTH_FACT_CHARS = 4000
+HELPER_REPORT_CHARS = 40000
+LEARN_CANDIDATES = 40
+MANUAL_HELPER_CAP = 0.3
 
 
 class RunError(Exception):
@@ -92,6 +118,8 @@ class RunSession:
     base_report: str = ""
     resumed: bool = False
     prior_states: dict[str, TaskState] = field(default_factory=dict)
+    digest: dict | None = None
+    facts_used: dict[str, Fact] = field(default_factory=dict)
 
 
 @dataclass
@@ -102,6 +130,8 @@ class RunOutcome:
     cost: float
     tasks: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    learned: int = 0
+    proposed: list[str] = field(default_factory=list)
 
 
 class CacheGate:
@@ -165,8 +195,20 @@ class Orchestrator:
             text, _ = redact_pii(text)
         return text.strip()
 
+    def _profile(self) -> str:
+        lines = self.ws.config.profile.lines()
+        if not lines:
+            return ""
+        text = "\n".join(lines)
+        if self.ws.config.redact_pii:
+            text, _ = redact_pii(text)
+        return f"<business_profile>\n{text}\n</business_profile>"
+
     def _system(self, prompt: str) -> list[dict]:
         blocks: list[dict] = [{"type": "text", "text": prompt}]
+        profile = self._profile()
+        if profile:
+            blocks.append({"type": "text", "text": profile})
         brief = self._brief()
         if brief:
             blocks.append({"type": "text", "text": f"<workspace_brief>\n{brief}\n</workspace_brief>"})
@@ -195,6 +237,7 @@ class Orchestrator:
             "base_run": session.context.base["run_id"] if session.context.base else None,
             "allow_confidential": session.allow_confidential,
             "models": self.models_in_use(),
+            "digest": {"id": session.digest["id"], "title": session.digest["title"]} if session.digest else None,
             "tasks": [s.summary() for s in states.values()] if states else [],
             "cost_total": round(self.ledger.spent_run(session.run_id), 6),
             **extra,
@@ -290,7 +333,7 @@ class Orchestrator:
 
     def direct(
         self, goal: str, playbook_id: str | None = None, run_cap: float | None = None, allow_confidential: bool = False,
-        base_run_id: str | None = None, run_id: str | None = None,
+        base_run_id: str | None = None, run_id: str | None = None, digest: dict | None = None,
     ) -> RunSession:
         goal, playbook, cap, ctx, base_report = self._prepare(
             goal, playbook_id, run_cap, allow_confidential, base_run_id
@@ -298,27 +341,35 @@ class Orchestrator:
         notes: list[str] = []
         use_web = ctx.web_allowed and (playbook is None or playbook.needs_web)
         inputs: list[str] = []
-        used = 0
-        for f in ctx.sendable_inputs:
-            if used + f.chars > DIRECT_INPUT_CHARS:
-                notes.append(f"입력 자료 분량 제한으로 제외: {f.name}")
-                continue
-            inputs.append(f.name)
-            used += f.chars
-        if not use_web and not inputs:
-            notes.append("웹과 입력 자료가 모두 없음, 모델 지식만으로 작성됨")
-        title = " ".join(goal.split())
-        title = title if len(title) <= 60 else title[:59] + "…"
         worker = self.settings.models.worker
+        limit = self.ws.config.web.max_searches_per_task
+        if digest is not None:
+            if not ctx.web_allowed:
+                raise RunError("정기 정리는 웹 조사가 필요하지만 이 작업 영역은 웹을 쓸 수 없음")
+            title = f"{digest['title']} · {datetime.now().strftime('%Y-%m-%d')}"
+            effort = worker.clamp("low")
+            searches = max(1, min(int(digest.get("max_searches") or limit), limit))
+            approach = f"정기 정리: {digest['since']} 이후 새 소식만 에이전트 하나가 조사해 정리함"
+        else:
+            used = 0
+            for f in ctx.sendable_inputs:
+                if used + f.chars > DIRECT_INPUT_CHARS:
+                    notes.append(f"입력 자료 분량 제한으로 제외: {f.name}")
+                    continue
+                inputs.append(f.name)
+                used += f.chars
+            if not use_web and not inputs:
+                notes.append("웹과 입력 자료가 모두 없음, 모델 지식만으로 작성됨")
+            title = " ".join(goal.split())
+            title = title if len(title) <= 60 else title[:59] + "…"
+            effort = worker.clamp("medium")
+            searches = limit if use_web else 0
+            approach = "계획 단계 없이 에이전트 하나가 목표를 바로 조사하고 보고서를 작성함"
         task = PlannedTask(
             id="t1", title=title, objective=goal, use_web=use_web, inputs=inputs, depends_on=[],
-            effort=worker.clamp("medium"), max_searches=self.ws.config.web.max_searches_per_task if use_web else 0,
-            reuse_ref="",
+            effort=effort, max_searches=searches, reuse_ref="",
         )
-        plan = Plan(
-            title=title, approach="계획 단계 없이 에이전트 하나가 목표를 바로 조사하고 보고서를 작성함",
-            tasks=[task], outline=[], synth_effort="low",
-        )
+        plan = Plan(title=title, approach=approach, tasks=[task], outline=[], synth_effort="low")
         run_id = self._fresh_run_id(run_id)
         created = datetime.now().isoformat(timespec="seconds")
         self._requested("run.direct_requested", run_id, goal, playbook, ctx, allow_confidential, cap)
@@ -326,7 +377,7 @@ class Orchestrator:
         session = RunSession(
             run_id=run_id, goal=goal, playbook=playbook, plan=plan, plan_notes=notes, estimate=estimate, run_cap=cap,
             allow_confidential=allow_confidential, context=ctx, created=created, plan_cost=0.0, direct=True,
-            base_report=base_report,
+            base_report=base_report, digest=digest,
         )
         self._record(session, "planned")
         self.bus.emit("run.planned", run_id, tasks=[task.model_dump()], estimate=estimate, notes=notes)
@@ -348,6 +399,16 @@ class Orchestrator:
             parts.append(f'<document name="{name}" classification="{entry.classification}">\n{text}\n</document>')
         return parts
 
+    def _use_facts(self, session: RunSession, query: str, limit: int, max_chars: int) -> tuple[str, list[Fact]]:
+        chosen = select_facts(list(session.context.facts), query, limit)
+        block = facts_block(chosen, max_chars)
+        if not block:
+            return "", []
+        shown = [f for f in chosen if f"[{f.id}]" in block]
+        for fact in shown:
+            session.facts_used[fact.id] = fact
+        return block, shown
+
     def _worker_message(self, session: RunSession, st: TaskState, states: dict[str, TaskState]) -> str:
         task = st.task
         lines = [
@@ -356,6 +417,14 @@ class Orchestrator:
             f"Your task ({task.id}): {task.title}",
             f"Objective: {task.objective}",
         ]
+        digest = session.digest
+        if digest is not None:
+            lines.append(f"Digest name: {digest['title']}")
+            lines.append(f"Reporting period: from {digest['since']} until now.")
+            if digest.get("previous"):
+                lines.append(f"<previous_digest>\n{digest['previous']}\n</previous_digest>")
+            if digest.get("seen"):
+                lines.append("<already_reported>\n" + "\n".join(digest["seen"]) + "\n</already_reported>")
         if task.use_web:
             lines.append(
                 f"Search budget: aim for {task.max_searches} web searches or fewer "
@@ -381,10 +450,20 @@ class Orchestrator:
             lines.append("<upstream_findings>")
             lines += [f"From {u.task.id} ({u.task.title}):\n{u.handoff}" for u in upstream]
             lines.append("</upstream_findings>")
+        facts, _ = self._use_facts(session, f"{session.goal}\n{task.title}\n{task.objective}", TASK_FACTS,
+                                   TASK_FACT_CHARS)
+        if facts:
+            lines.append("Known facts from earlier runs (id, date, fact, sources):\n" + facts)
         docs = self._documents(session, task)
         if docs:
             lines.append("<documents>\n" + "\n".join(docs) + "\n</documents>")
         return "\n\n".join(lines)
+
+    @staticmethod
+    def _worker_prompt(session: RunSession) -> str:
+        if session.digest is not None:
+            return DIGEST_SYSTEM
+        return DIRECT_SYSTEM if session.direct else WORKER_SYSTEM
 
     def _write_task(self, out_dir: Path, st: TaskState) -> None:
         header = f"# {st.task.id}. {st.task.title}\n\n> 상태: {st.status} | effort: {st.effort} | 비용: ${st.cost:.4f}\n\n"
@@ -413,6 +492,7 @@ class Orchestrator:
         st.status = "running"
         self.bus.emit("task.started", session.run_id, task.id, effort=effort)
         message = self._worker_message(session, st, states)
+        trusted = fact_sources(session.facts_used.values())
         tools = web_tools(role.model, self.ws.config.web) if task.use_web else None
         notes = None
         for attempt in range(2 if escalate else 1):
@@ -424,7 +504,7 @@ class Orchestrator:
                     ctx=CallContext(self.ws.name, session.run_id, task.id, "worker"),
                     role=role,
                     effort=effort,
-                    system=self._system(DIRECT_SYSTEM if session.direct else WORKER_SYSTEM),
+                    system=self._system(self._worker_prompt(session)),
                     messages=[{"role": "user", "content": message}],
                     guard=guard,
                     tools=tools,
@@ -434,7 +514,7 @@ class Orchestrator:
             finally:
                 warm()
             st.cost += result.cost
-            notes = render(result.blocks)
+            notes = render(result.blocks, trusted)
             if attempt == 0 and escalate:
                 if result.stop_reason in ("max_tokens", "pause_limit") and max_tokens < MAX_TOKENS_CEILING:
                     max_tokens = min(max_tokens * 2, MAX_TOKENS_CEILING)
@@ -474,6 +554,9 @@ class Orchestrator:
                          f"{session.base_report}\n</base_report>")
         elif prev:
             lines.append(f'<previous_summary date="{prev["date"]}">\n{prev["summary"]}\n</previous_summary>')
+        facts, _ = self._use_facts(session, session.goal, SYNTH_FACTS, SYNTH_FACT_CHARS)
+        if facts:
+            lines.append("Known facts from earlier runs (id, date, fact, sources):\n" + facts)
         notes = []
         gaps = []
         for st in states.values():
@@ -527,7 +610,7 @@ class Orchestrator:
         except (BudgetExceeded, RefusalError, anthropic.APIError) as exc:
             warnings.append(f"종합 단계 실패: {exc}")
             return "partial", self._fallback_report(session, states, str(exc)), ""
-        known: set[str] = set()
+        known: set[str] = set(fact_sources(session.facts_used.values()))
         for done in completed:
             known |= done.verified_urls
         if session.context.previous_summary:
@@ -621,13 +704,143 @@ class Orchestrator:
                 "run.completed", run_id=session.run_id, status=status, cost=round(total, 6),
                 report_sha256=hashlib.sha256(report_path.read_bytes()).hexdigest(),
             )
-            self.bus.emit("run.done", session.run_id, status=status, report=str(report_path), cost=total)
-            return RunOutcome(session.run_id, status, report_path, total, [s.summary() for s in states.values()], warnings)
         except asyncio.CancelledError:
             self._record(session, "cancelled", states)
             self.audit.append("run.cancelled", run_id=session.run_id)
             self.bus.emit("run.cancelled", session.run_id)
             raise
+        floor = self._floor(session)
+        verified = set(fact_sources(session.facts_used.values()))
+        for st in states.values():
+            verified |= st.verified_urls
+        sources = {u for u in urls_in(body) if u in verified}
+        sources |= {name for t in session.plan.tasks for name in t.inputs}
+        learned = await self._learn(session.run_id, session.goal, body, sources, list(session.context.facts), floor,
+                                    guard, warnings)
+        proposed = await self._propose(session.run_id, session.goal, body, floor, guard, warnings)
+        total = self.ledger.spent_run(session.run_id)
+        self.audit.append("run.finalized", run_id=session.run_id, cost=round(total, 6), knowledge=learned,
+                          actions=len(proposed))
+        if learned or proposed or warnings:
+            self._record(session, status, states, summary=summary, report=str(report_path), warnings=warnings,
+                         knowledge=learned, actions=proposed)
+        self.bus.emit("run.done", session.run_id, status=status, report=str(report_path), cost=total)
+        return RunOutcome(session.run_id, status, report_path, total, [s.summary() for s in states.values()],
+                          warnings, learned, proposed)
+
+    def _floor(self, session: RunSession) -> str:
+        entries = {f.name: f.classification for f in session.context.sendable_inputs}
+        ranks = [CLASS_RANK["internal"]]
+        ranks += [CLASS_RANK[entries[n]] for t in session.plan.tasks for n in t.inputs if n in entries]
+        ranks += [CLASS_RANK[f.classification] for f in session.facts_used.values()]
+        if session.context.base:
+            base = self.ws.load_run(session.context.base["run_id"]) or {}
+            if base.get("allow_confidential"):
+                ranks.append(CLASS_RANK["confidential"])
+        top = max(ranks)
+        return next(name for name, rank in CLASS_RANK.items() if rank == top)
+
+    def _report_text(self, body: str) -> str:
+        text = body.rsplit(REPORT_FOOTER, 1)[0].strip()
+        if self.ws.config.redact_pii:
+            text, _ = redact_pii(text)
+        if len(text) > HELPER_REPORT_CHARS:
+            text = text[:HELPER_REPORT_CHARS] + "\n\n(이하 생략)"
+        return text
+
+    async def _helper(self, run_id: str, task_id: str, prompt: str, message: str, schema: dict,
+                      guard: BudgetGuard) -> tuple[str, float]:
+        role = self.settings.models.helper
+        result = await self.llm.run(
+            ctx=CallContext(self.ws.name, run_id, task_id, "helper"),
+            role=role,
+            effort=role.clamp("low"),
+            system=self._system(prompt),
+            messages=[{"role": "user", "content": message}],
+            guard=guard,
+            schema=schema,
+        )
+        if result.stop_reason != "end_turn":
+            raise ValueError(f"응답이 완료되지 않음 (stop_reason={result.stop_reason})")
+        return plain_text(result.blocks), result.cost
+
+    async def _learn(self, run_id: str, goal: str, body: str, sources: set[str], known: list[Fact], floor: str,
+                     guard: BudgetGuard, warnings: list[str]) -> int:
+        if not self.ws.config.knowledge or not sources:
+            return 0
+        candidates = select_facts(known, f"{goal}\n{body[:3000]}", LEARN_CANDIDATES)
+        lines = [f"Today: {date.today().isoformat()}", f"<goal>\n{goal}\n</goal>"]
+        if candidates:
+            lines.append("Existing facts (id, date, fact, sources):\n" + facts_block(candidates, 8000, "existing_facts"))
+        lines.append(f"<report>\n{self._report_text(body)}\n</report>")
+        self.bus.emit("knowledge.started", run_id)
+        try:
+            raw, cost = await self._helper(run_id, "learn", KNOWLEDGE_SYSTEM, "\n\n".join(lines), EXTRACT_SCHEMA,
+                                           guard)
+            facts, replaces, dropped = parse_extraction(
+                raw, run_id=run_id, classification=floor, allowed_sources=sources,
+                candidates={f.id for f in candidates},
+            )
+            added, replaced = KnowledgeStore(self.ws).merge(facts, replaces)
+        except (BudgetExceeded, RefusalError, anthropic.APIError, ValueError, ValidationError, OSError) as exc:
+            warnings.append(f"지식 정리 생략: {str(exc)[:160]}")
+            self.bus.emit("knowledge.failed", run_id, reason=str(exc)[:160])
+            return 0
+        self.ledger.record_task_cost(role="helper", model=self.settings.models.helper.model, effort="low", web=False,
+                                     cost=cost)
+        self.audit.append("knowledge.updated", workspace=self.ws.name, run_id=run_id, added=added, replaced=replaced,
+                          dropped=dropped, classification=floor)
+        self.bus.emit("knowledge.updated", run_id, added=added, replaced=replaced, dropped=dropped, cost=cost)
+        return added
+
+    async def _propose(self, run_id: str, goal: str, body: str, floor: str, guard: BudgetGuard,
+                       warnings: list[str]) -> list[str]:
+        allowed = self.ws.config.actions
+        if not allowed:
+            return []
+        lines = [
+            f"Today: {date.today().isoformat()}",
+            f"Allowed action types: {', '.join(allowed)}",
+            f"<goal>\n{goal}\n</goal>",
+            f"<report>\n{self._report_text(body)}\n</report>",
+        ]
+        self.bus.emit("actions.started", run_id)
+        try:
+            raw, cost = await self._helper(run_id, "actions", ACTIONS_SYSTEM, "\n\n".join(lines), PROPOSAL_SCHEMA,
+                                           guard)
+            actions, problems = parse_proposals(raw, run_id=run_id, allowed=allowed, classification=floor)
+            store = ActionStore(self.ws)
+            for action in actions:
+                store.save(action)
+        except (BudgetExceeded, RefusalError, anthropic.APIError, ValueError, ValidationError, OSError) as exc:
+            warnings.append(f"행동 제안 생략: {str(exc)[:160]}")
+            self.bus.emit("actions.failed", run_id, reason=str(exc)[:160])
+            return []
+        warnings.extend(problems)
+        for action in actions:
+            self.audit.append("action.proposed", workspace=self.ws.name, run_id=run_id, action_id=action.id,
+                              type=action.type, classification=action.classification)
+        self.bus.emit("actions.proposed", run_id, count=len(actions), cost=cost)
+        return [a.id for a in actions]
+
+    async def propose_actions(self, run_id: str) -> list[str]:
+        record = self.ws.load_run(run_id)
+        report = self.ws.read_report(run_id)
+        if record is None or not report or record.get("status") not in FOLLOWABLE:
+            raise RunError("보고서가 있는 완료된 실행에만 행동 제안을 받을 수 있음")
+        if not self.ws.config.actions:
+            raise RunError("이 작업 영역은 행동 제안을 쓰지 않도록 설정됨")
+        cap = self.ledger.spent_run(run_id) + MANUAL_HELPER_CAP
+        guard = self._guard(run_id, cap)
+        warnings: list[str] = []
+        floor = "confidential" if record.get("allow_confidential") else "internal"
+        proposed = await self._propose(run_id, str(record.get("goal", "")), report, floor, guard, warnings)
+        if not proposed and warnings:
+            raise RunError(warnings[0])
+        record["actions"] = list(record.get("actions") or []) + proposed
+        record["cost_total"] = round(self.ledger.spent_run(run_id), 6)
+        self.ws.save_run(run_id, record)
+        return proposed
 
     def cancel_planned(self, session: RunSession) -> None:
         if session.resumed:
@@ -705,7 +918,7 @@ class Orchestrator:
         estimate = estimate_plan(plan, self.ws, self.settings, self.ledger, synthesize=not direct)
         for task_id in prior:
             estimate["tasks"][task_id] = 0.0
-        estimate["total"] = sum(estimate["tasks"].values()) + estimate["synthesizer"]
+        finish_estimate(estimate)
         session = RunSession(
             run_id=run_id, goal=str(record.get("goal", "")), playbook=playbook, plan=plan,
             plan_notes=notes + list(record.get("plan_notes") or []), estimate=estimate,

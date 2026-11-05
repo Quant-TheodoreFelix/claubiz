@@ -49,7 +49,7 @@ async def test_resume_runs_only_remaining_tasks(tmp_path):
     assert resumed.estimate["tasks"]["t1"] == 0.0 and resumed.estimate["tasks"]["t4"] > 0
     outcome = await orch.execute(resumed)
     assert outcome.status == "completed"
-    new_calls = fake.calls[calls_before:]
+    new_calls = [c for c in fake.calls[calls_before:] if c[0] != "helper"]
     assert {c[1] for c in new_calls} == {"t4", "synth"}
     assert "From t1" in fake.messages[("t4", "medium")]
     record = ws.load_run(session.run_id)

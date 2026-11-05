@@ -93,7 +93,7 @@ def _web_results(blocks: list[Any]) -> tuple[dict[str, str], dict[str, str]]:
     return fetched, searched
 
 
-def render(blocks: list[Any]) -> RenderedNotes:
+def render(blocks: list[Any], trusted: Iterable[str] = ()) -> RenderedNotes:
     sources: dict[str, Source] = {}
     pieces: list[str] = []
     for block in blocks:
@@ -134,7 +134,7 @@ def render(blocks: list[Any]) -> RenderedNotes:
     for url in mentioned:
         if url in searched and url not in cited and url not in consulted:
             consulted[url] = searched[url]
-    verified = cited | set(fetched) | set(searched)
+    verified = cited | set(fetched) | set(searched) | {norm_url(u) for u in trusted}
     unverified = tuple(u for u in mentioned if u not in verified)
     return RenderedNotes(
         body=body,

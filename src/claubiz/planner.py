@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .budget import Ledger
 from .config import OUTPUT_TOKENS_BY_EFFORT, Settings
+from .knowledge import Fact, KnowledgeStore, facts_block, select_facts
 from .playbooks import Playbook
 from .policy import may_send, scope_allows_inputs, scope_allows_web
 from .workspace import InputFile, Workspace
@@ -14,6 +15,10 @@ from .workspace import InputFile, Workspace
 TASK_ID_RE = re.compile(r"^t\d{1,2}$")
 REUSE_RE = re.compile(r"^(r\d{8}-\d{6}-[0-9a-f]{6})/(t\d{1,2})$")
 CHARS_PER_TOKEN = 2.0
+PLANNER_FACTS = 25
+PLANNER_FACT_CHARS = 4000
+HELPER_INPUT_TOKENS = 9000
+HELPER_OUTPUT_TOKENS = 3000
 
 
 class PlannedTask(BaseModel):
@@ -85,6 +90,14 @@ class PlanContext:
     previous_summary: dict | None
     web_allowed: bool
     base: dict | None = None
+    facts: tuple[Fact, ...] = ()
+
+
+def sendable_facts(ws: Workspace, allow_confidential: bool) -> tuple[Fact, ...]:
+    if not ws.config.knowledge:
+        return ()
+    limit = ws.config.max_send_classification
+    return tuple(f for f in KnowledgeStore(ws).facts() if may_send(f.classification, limit, allow_confidential))
 
 
 def sendable_inputs(ws: Workspace, allow_confidential: bool) -> list[InputFile]:
@@ -134,7 +147,14 @@ def build_context(
             for ref, info in _reusable_tasks(record).items():
                 reusable.setdefault(ref, info)
     web_allowed = scope_allows_web(ws.config.scope) and ws.config.web.max_searches_per_task > 0
-    return PlanContext(sendable_inputs(ws, allow_confidential), reusable, previous, web_allowed, base)
+    return PlanContext(
+        sendable_inputs(ws, allow_confidential), reusable, previous, web_allowed, base,
+        sendable_facts(ws, allow_confidential),
+    )
+
+
+def goal_facts(ctx: PlanContext, goal: str, limit: int = PLANNER_FACTS) -> list[Fact]:
+    return select_facts(list(ctx.facts), goal, limit)
 
 
 def planner_message(goal: str, ws: Workspace, playbook: Playbook | None, ctx: PlanContext, settings: Settings) -> str:
@@ -167,6 +187,9 @@ def planner_message(goal: str, ws: Workspace, playbook: Playbook | None, ctx: Pl
                 "answers a task, reuse it with reuse_ref instead of researching again."
             ),
         ]
+    known = facts_block(goal_facts(ctx, goal), PLANNER_FACT_CHARS)
+    if known:
+        lines.append("\nKnown facts recorded by earlier runs (id, date, fact, sources):\n" + known)
     if ctx.reusable:
         lines.append("\nPrior research artifacts available for reuse (reuse_ref | date | title | summary):")
         for ref, info in list(ctx.reusable.items())[:15]:
@@ -256,10 +279,24 @@ def estimate_task(task: PlannedTask, ws: Workspace, settings: Settings, ledger: 
     return (prompt * price.input + output * price.output) / 1_000_000 + task.max_searches * settings.web_search_usd_per_1k / 1000
 
 
+def helper_estimate(ws: Workspace, settings: Settings) -> float:
+    calls = int(ws.config.knowledge) + int(bool(ws.config.actions))
+    if not calls:
+        return 0.0
+    price = settings.price_for(settings.models.helper.model)
+    return calls * (HELPER_INPUT_TOKENS * price.input + HELPER_OUTPUT_TOKENS * price.output) / 1_000_000
+
+
+def finish_estimate(estimate: dict) -> dict:
+    estimate["total"] = sum(estimate["tasks"].values()) + estimate["synthesizer"] + estimate.get("helper", 0.0)
+    return estimate
+
+
 def estimate_plan(plan: Plan, ws: Workspace, settings: Settings, ledger: Ledger, synthesize: bool = True) -> dict:
     per_task = {t.id: estimate_task(t, ws, settings, ledger) for t in plan.tasks}
+    helper = helper_estimate(ws, settings)
     if not synthesize:
-        return {"tasks": per_task, "synthesizer": 0.0, "total": sum(per_task.values())}
+        return finish_estimate({"tasks": per_task, "synthesizer": 0.0, "helper": helper})
     synth = settings.models.synthesizer
     history = ledger.task_cost_history("synthesizer", synth.model, plan.synth_effort, False)
     if len(history) >= 3:
@@ -269,4 +306,4 @@ def estimate_plan(plan: Plan, ws: Workspace, settings: Settings, ledger: Ledger,
         prompt = 3000 + 2500 * len(plan.tasks)
         output = OUTPUT_TOKENS_BY_EFFORT.get(plan.synth_effort, 5000) * 1.5
         synth_cost = (prompt * price.input + output * price.output) / 1_000_000
-    return {"tasks": per_task, "synthesizer": synth_cost, "total": sum(per_task.values()) + synth_cost}
+    return finish_estimate({"tasks": per_task, "synthesizer": synth_cost, "helper": helper})

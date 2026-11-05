@@ -60,6 +60,21 @@ def describe(event: Event) -> str | None:
         return "종합 보고서 작성 시작"
     if kind == "synth.done":
         return f"종합 완료 (${d.get('cost', 0):.4f})"
+    if kind == "knowledge.started":
+        return "지식 정리 중"
+    if kind == "knowledge.updated":
+        dropped = f", 출처 없는 {d.get('dropped')}개 제외" if d.get("dropped") else ""
+        return f"지식 {d.get('added')}개 추가, {d.get('replaced')}개 갱신{dropped} (${d.get('cost', 0):.4f})"
+    if kind == "knowledge.failed":
+        return f"[yellow]지식 정리 생략: {d.get('reason')}[/]"
+    if kind == "actions.started":
+        return "행동 제안 정리 중"
+    if kind == "actions.proposed":
+        count = d.get("count") or 0
+        tail = " · 제안 탭에서 승인" if count else ""
+        return f"행동 제안 {count}건 (${d.get('cost', 0):.4f}){tail}"
+    if kind == "actions.failed":
+        return f"[yellow]행동 제안 생략: {d.get('reason')}[/]"
     if kind == "run.done":
         return f"[bold]실행 종료: {d.get('status')} (${d.get('cost', 0):.4f})[/]"
     if kind == "run.failed":

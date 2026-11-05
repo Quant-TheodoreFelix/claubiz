@@ -27,6 +27,25 @@ PLAN = {
 }
 
 
+LEARNED = {
+    "facts": [
+        {"text": "테스트 시장 규모는 2026년 1조 원으로 집계됨", "topic": "시장", "sources": ["https://stats.example.org/a"],
+         "as_of": "2026-10-01"},
+        {"text": "출처 없는 주장은 저장되면 안 됨", "topic": "잡음", "sources": ["https://made-up.example.com/z"],
+         "as_of": "2026-10-02"},
+    ],
+    "replaces": [],
+}
+PROPOSED = {
+    "actions": [
+        {"type": "doc", "title": "후속 메모", "reason": "보고서 요약을 팀에 공유", "to": [], "cc": [], "subject": "",
+         "body": "- 핵심 정리", "start": "", "end": "", "location": "", "columns": [], "rows": []},
+        {"type": "email", "title": "깨진 메일", "reason": "", "to": ["not-an-address"], "cc": [], "subject": "x",
+         "body": "y", "start": "", "end": "", "location": "", "columns": [], "rows": []},
+    ],
+}
+
+
 def text(value, citations=None):
     return SimpleNamespace(type="text", text=value, citations=citations)
 
@@ -42,12 +61,19 @@ class FakeLLM:
         self.models = []
         self.hold = None
         self.held = set()
+        self.helper_messages = {}
+        self.learned = LEARNED
+        self.proposed = PROPOSED
 
     async def run(self, *, ctx, role, effort, system, messages, guard, tools=None, max_tokens=None, schema=None,
                   on_warm=None):
         self.calls.append((ctx.role, ctx.task_id, effort, bool(tools)))
         self.models.append((ctx.run_id, ctx.task_id, role.model))
         self.messages[(ctx.task_id, effort)] = messages[0]["content"]
+        if ctx.role == "helper":
+            self.helper_messages[ctx.task_id] = messages[0]["content"]
+            payload = self.learned if ctx.task_id == "learn" else self.proposed
+            return AgentResult([text(json.dumps(payload, ensure_ascii=False))], "end_turn", 0.001, [], role.model)
         if ctx.role == "planner" and ctx.task_id == "brief":
             return AgentResult([text("## 목적\n- 고객사 A 시장 조사 지원")], "end_turn", 0.004, [], role.model)
         if ctx.role == "planner":
