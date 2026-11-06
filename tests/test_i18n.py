@@ -1,6 +1,8 @@
+import os
+
 import pytest
 
-from claubiz import i18n
+from claubiz import cli, i18n, launcher
 from claubiz.schedule import ScheduleError, parse_schedule
 
 
@@ -48,3 +50,14 @@ def test_english_schedule_syntax(text, expected):
 def test_weekly_needs_days(text):
     with pytest.raises(ScheduleError):
         parse_schedule(text)
+
+
+def test_preload_reads_only_leading_global_options(monkeypatch):
+    monkeypatch.setenv("CLAUBIZ_LANG", "ko")
+    monkeypatch.setenv("CLAUBIZ_HOME", "/unchanged")
+    launcher.preload(["--lang", "en", "run", "--home", "/other", "--lang=ko"])
+    assert os.environ["CLAUBIZ_LANG"] == "en" and os.environ["CLAUBIZ_HOME"] == "/unchanged"
+    launcher.preload(["--version", "--home=/data", "tui"])
+    assert os.environ["CLAUBIZ_HOME"] == "/data"
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["--la", "en", "tui"])

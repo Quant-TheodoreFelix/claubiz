@@ -607,6 +607,7 @@ def _profile_args(p: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="claubiz",
+        allow_abbrev=False,
         description=tr("Claude API 기반 비즈니스 자동화 멀티 에이전트 (하위 명령 없이 실행하면 TUI가 열림)"),
     )
     parser.add_argument("--version", action="version", version=f"claubiz {__version__}")
