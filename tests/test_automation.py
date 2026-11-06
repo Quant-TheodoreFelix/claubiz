@@ -4,10 +4,12 @@ import email
 import io
 import json
 import os
+import sys
 from datetime import date, datetime, timedelta
 from email.policy import default as default_policy
 
 import pytest
+from support import assert_private
 from test_orchestrator import PROPOSED, FakeLLM, _setup
 
 from claubiz.actions import ActionError, ActionStore, parse_proposals, render_event
@@ -112,7 +114,7 @@ def test_schedule_parsing():
     assert parse_schedule("주말 9시").describe() == "주말 09:00"
     assert parse_schedule("6시간마다").describe() == "6시간마다"
     assert parse_schedule("07:15").describe() == "매일 07:15"
-    for bad in ("", "매일", "매일 25:00", "화성 09:00", "0시간마다", "오후 13시", "1000시간마다"):
+    for bad in ("", "매일", "매일 25:00", "화성 09:00", "0시간마다", "오후 13시", "1000시간마다", "매주 09:00"):
         with pytest.raises(ScheduleError):
             parse_schedule(bad)
     weekdays = parse_schedule("평일 09:00")
@@ -234,7 +236,8 @@ def test_approved_actions_write_safe_files(tmp_path):
 
     done = store.approve(mail.id)
     path = store.output_path(done)
-    assert path.parent == ws.root / "outbox" and path.suffix == ".eml" and path.stat().st_mode & 0o777 == 0o600
+    assert path.parent == ws.root / "outbox" and path.suffix == ".eml"
+    assert_private(path, 0o600)
     raw = path.read_bytes()
     parsed = email.message_from_bytes(raw, policy=default_policy)
     assert parsed["X-Unsent"] == "1" and parsed["To"] == "kim@example.com" and parsed["Bcc"] is None
@@ -319,6 +322,7 @@ async def test_concurrent_claims_across_handles():
     assert os.path.exists(ws.root / f"digest-{spec.id}.lock")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="launchd")
 def test_launch_agent_plist_and_install_with_fake_runner(monkeypatch):
     import plistlib
     import subprocess

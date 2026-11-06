@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 
 from rich.cells import cell_len
 from test_tui import SIZE, make_app
@@ -209,7 +210,7 @@ async def test_import_other_workspace_run_and_export(tmp_path):
         assert not isinstance(app.screen, ExportModal)
         files = list(out.iterdir())
         assert len(files) == 1 and "알파 조사" in files[0].name
-        assert app.export_dir.endswith("out/")
+        assert app.export_dir.endswith("out" + os.sep)
 
         app.query_one("#ws-list").highlighted = 1
         await pilot.pause()

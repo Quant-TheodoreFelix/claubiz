@@ -31,14 +31,16 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
+from .. import hostos
 from ..actions import ActionError, ActionStore
 from ..audit import AuditLog
 from ..config import MODEL_CHOICES
 from ..digest import DEFAULT_DIGEST_CAP, DEFAULT_DIGEST_MODEL, DigestError, DigestSpec, DigestStore, make_spec
+from ..i18n import language, tr
 from ..paths import home_path
 from ..playbooks import PlaybookError, PlaybookSpec, save_custom_playbook
 from ..policy import PolicyError
-from ..schedule import ScheduleError, parse_schedule
+from ..schedule import DAY_NAMES, EN_DAYS, ScheduleError, parse_schedule
 from ..workspace import (
     ACTION_TYPES,
     BUSINESS_TYPES,
@@ -62,31 +64,34 @@ from .widgets import SafeMarkdownViewer, human_size, status_text
 BriefGenerator = Callable[..., Awaitable[tuple[str, float]]]
 
 SCOPE_OPTIONS = [
-    ("조사: 웹 + 로컬 자료", "research"),
-    ("웹 전용", "web-only"),
-    ("자료 전용 (웹 차단)", "inputs-only"),
+    (tr("조사: 웹 + 로컬 자료"), "research"),
+    (tr("웹 전용"), "web-only"),
+    (tr("자료 전용 (웹 차단)"), "inputs-only"),
 ]
-CLASS_OPTIONS = [("internal 이하 전송", "internal"), ("public만 전송", "public")]
-WEB_MODES = [("제한 없음", "none"), ("허용 목록만 사용", "allow"), ("차단 목록 제외", "block")]
-INPUT_CLASSES = [("internal (내부)", "internal"), ("public (공개)", "public"), ("confidential (기밀)", "confidential")]
-BRIEF_MODES = [("없음", "none"), ("직접 작성", "manual"), ("AI가 초안 작성", "ai")]
+CLASS_OPTIONS = [(tr("internal 이하 전송"), "internal"), (tr("public만 전송"), "public")]
+WEB_MODES = [(tr("제한 없음"), "none"), (tr("허용 목록만 사용"), "allow"), (tr("차단 목록 제외"), "block")]
+INPUT_CLASSES = [(tr("internal (내부)"), "internal"), (tr("public (공개)"), "public"), (tr("confidential (기밀)"), "confidential")]
+BRIEF_MODES = [(tr("없음"), "none"), (tr("직접 작성"), "manual"), (tr("AI가 초안 작성"), "ai")]
 BRIEF_HELP = {
-    "manual": "모든 에이전트 요청에 함께 전달되는 지침. 회사 소개, 독자, 선호 출처, 작성 방식, 용어 등을 적어줘",
-    "ai": "참고할 내용을 적고(선택) 'AI 초안 만들기'를 누르면 초안이 여기에 채워짐. 확인하고 고친 뒤 만들기",
+    "manual": tr("모든 에이전트 요청에 함께 전달되는 지침. 회사 소개, 독자, 선호 출처, 작성 방식, 용어 등을 적어줘"),
+    "ai": tr("참고할 내용을 적고(선택) 'AI 초안 만들기'를 누르면 초안이 여기에 채워짐. 확인하고 고친 뒤 만들기"),
 }
-TYPE_OPTIONS = [("미지정", ""), *((label, key) for key, label in BUSINESS_TYPES)]
+TYPE_OPTIONS = [(tr("미지정"), ""), *((label, key) for key, label in BUSINESS_TYPES)]
 PROFILE_INPUTS = (
-    ("industry", "업종·세부 분야", "예: B2B 전자계약 SaaS", 200),
-    ("offering", "주요 제품·서비스", "예: 전자서명, 계약 관리", 300),
-    ("customers", "주요 고객", "예: 중견 제조사 법무팀", 300),
-    ("competitors", "경쟁사·비교 대상", "예: 모두싸인, 글로싸인, DocuSign", 300),
-    ("markets", "관심 지역·시장", "예: 국내, 일본", 200),
-    ("audience", "보고서 독자", "예: 대표, 영업팀장", 200),
+    ("industry", tr("업종·세부 분야"), tr("예: B2B 전자계약 SaaS"), 200),
+    ("offering", tr("주요 제품·서비스"), tr("예: 전자서명, 계약 관리"), 300),
+    ("customers", tr("주요 고객"), tr("예: 중견 제조사 법무팀"), 300),
+    ("competitors", tr("경쟁사·비교 대상"), tr("예: 모두싸인, 글로싸인, DocuSign"), 300),
+    ("markets", tr("관심 지역·시장"), tr("예: 국내, 일본"), 200),
+    ("audience", tr("보고서 독자"), tr("예: 대표, 영업팀장"), 200),
 )
-FOCUS_HINT = "예: 매주 경쟁사 가격과 신기능 확인, 전자문서법 개정 동향, 공공 조달 공고 중 전자계약 관련 건"
-WEEKDAY_NAMES = "월화수목금토일"
-DIGEST_MODELS = [("기본 설정", ""), *((f"{label} (추천)" if model == DEFAULT_DIGEST_MODEL else label, model)
-                                      for model, label in MODEL_CHOICES)]
+FOCUS_HINT = tr("예: 매주 경쟁사 가격과 신기능 확인, 전자문서법 개정 동향, 공공 조달 공고 중 전자계약 관련 건")
+WEEKDAY_NAMES = DAY_NAMES if language() == "ko" else EN_DAYS
+DIGEST_MODELS = [
+    (tr("기본 설정"), ""),
+    *((tr("{label} (추천)", label=label) if model == DEFAULT_DIGEST_MODEL else label, model)
+      for model, label in MODEL_CHOICES),
+]
 SKIP_DIRS = frozenset({"node_modules", "__pycache__", "venv", "site-packages", "Library", "Applications"})
 INDEX_LIMIT = 4000
 INDEX_DEPTH = 5
@@ -107,7 +112,7 @@ def web_note(mode: str, domains: list[str] | tuple[str, ...]) -> str:
 
 
 class FormModal(ModalScreen):
-    BINDINGS = [Binding("escape", "dismiss_none", "닫기")]
+    BINDINGS = [Binding("escape", "dismiss_none", tr("닫기"))]
 
     def action_dismiss_none(self) -> None:
         self.dismiss(None)
@@ -117,7 +122,7 @@ class FormModal(ModalScreen):
 
 
 def profile_grid(profile: BusinessProfile) -> ComposeResult:
-    yield Label("비즈니스 유형")
+    yield Label(tr("비즈니스 유형"))
     yield Select(TYPE_OPTIONS, value=profile.business_type, allow_blank=False, id="f-type")
     for name, label, hint, limit in PROFILE_INPUTS:
         yield Label(label)
@@ -138,7 +143,7 @@ def automation_actions(enabled: bool, current: tuple[str, ...]) -> tuple[str, ..
 
 
 class CreateWorkspaceModal(FormModal):
-    BINDINGS = [Binding("escape", "dismiss_none", "닫기"), Binding("ctrl+s", "submit", "만들기")]
+    BINDINGS = [Binding("escape", "dismiss_none", tr("닫기")), Binding("ctrl+s", "submit", tr("만들기"))]
 
     def __init__(self, generator: BriefGenerator | None = None) -> None:
         super().__init__()
@@ -147,57 +152,57 @@ class CreateWorkspaceModal(FormModal):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(classes="modal-box", id="create-box"):
-            yield Static("새 작업 영역", classes="modal-title")
-            yield Static("고객사나 프로젝트별로 예산, 출처 정책, 자료, 실행 기록을 분리함", classes="modal-sub")
+            yield Static(tr("새 작업 영역"), classes="modal-title")
+            yield Static(tr("고객사나 프로젝트별로 예산, 출처 정책, 자료, 실행 기록을 분리함"), classes="modal-sub")
             with Grid(classes="form-grid"):
-                yield Label("이름")
-                yield Input(placeholder="acme  (소문자, 숫자, -, _)", id="f-name", max_length=48)
-                yield Label("설명")
-                yield Input(placeholder="예: 고객사 A 시장 조사", id="f-desc", max_length=500)
-            yield Static("업무 프로필 · 모든 에이전트가 무엇이 중요한지 판단하는 기준 (비워도 됨)", classes="field-title")
+                yield Label(tr("이름"))
+                yield Input(placeholder=tr("acme  (소문자, 숫자, -, _)"), id="f-name", max_length=48)
+                yield Label(tr("설명"))
+                yield Input(placeholder=tr("예: 고객사 A 시장 조사"), id="f-desc", max_length=500)
+            yield Static(tr("업무 프로필 · 모든 에이전트가 무엇이 중요한지 판단하는 기준 (비워도 됨)"), classes="field-title")
             with Grid(classes="form-grid"):
                 yield from profile_grid(BusinessProfile())
-            yield Static("반복 업무·관심 이슈 · 정기 정리와 행동 제안의 기준", classes="field-title")
+            yield Static(tr("반복 업무·관심 이슈 · 정기 정리와 행동 제안의 기준"), classes="field-title")
             yield TextArea(id="f-focus", soft_wrap=True, classes="guide-area focus-area")
-            yield Static("정책과 자동화", classes="field-title")
+            yield Static(tr("정책과 자동화"), classes="field-title")
             with Grid(classes="form-grid"):
-                yield Label("활동 범위")
+                yield Label(tr("활동 범위"))
                 yield Select(SCOPE_OPTIONS, value="research", allow_blank=False, id="f-scope")
-                yield Label("전송 허용 등급")
+                yield Label(tr("전송 허용 등급"))
                 yield Select(CLASS_OPTIONS, value="internal", allow_blank=False, id="f-class")
-                yield Label("웹 출처 정책")
+                yield Label(tr("웹 출처 정책"))
                 yield Select(WEB_MODES, value="none", allow_blank=False, id="f-webmode")
-                yield Label("도메인", id="l-domains")
+                yield Label(tr("도메인"), id="l-domains")
                 yield Input(placeholder="example.com, korea.kr", id="f-domains")
-                yield Label("작업당 검색 / 페치")
+                yield Label(tr("작업당 검색 / 페치"))
                 with Horizontal(classes="pair"):
                     yield Input("5", type="integer", id="f-search", max_length=2)
                     yield Input("3", type="integer", id="f-fetch", max_length=2)
-                yield Label("월 예산 (USD)")
-                yield Input(placeholder="0 = 전체 예산 공유", type="number", id="f-budget")
-                yield Label("개인정보 가림")
+                yield Label(tr("월 예산 (USD)"))
+                yield Input(placeholder=tr("0 = 전체 예산 공유"), type="number", id="f-budget")
+                yield Label(tr("개인정보 가림"))
                 yield Switch(value=True, id="f-redact")
-                yield Label("누적 지식")
+                yield Label(tr("누적 지식"))
                 with Horizontal(classes="switch-row"):
                     yield Switch(value=True, id="f-knowledge")
-                    yield SwitchLabel("출처 있는 사실을 쌓아 다음 실행에 재사용", "f-knowledge")
-                yield Label("행동 제안")
+                    yield SwitchLabel(tr("출처 있는 사실을 쌓아 다음 실행에 재사용"), "f-knowledge")
+                yield Label(tr("행동 제안"))
                 with Horizontal(classes="switch-row"):
                     yield Switch(value=True, id="f-actions")
-                    yield SwitchLabel("메일 초안·일정·표·문서 제안 (승인 시 파일 생성)", "f-actions")
-                yield Label("작업 영역 지침")
+                    yield SwitchLabel(tr("메일 초안·일정·표·문서 제안 (승인 시 파일 생성)"), "f-actions")
+                yield Label(tr("작업 영역 지침"))
                 modes = BRIEF_MODES if self.generator else BRIEF_MODES[:2]
                 yield Select(modes, value="none", allow_blank=False, id="f-brief-mode")
             with Vertical(id="brief-area"):
                 yield Static("", id="brief-help", classes="modal-sub")
                 yield TextArea(id="f-brief", soft_wrap=True, show_line_numbers=False)
                 with Horizontal(id="brief-actions"):
-                    yield Button("AI 초안 만들기", id="gen", classes="ghost")
+                    yield Button(tr("AI 초안 만들기"), id="gen", classes="ghost")
                     yield Static("", id="gen-state")
             yield Static("", classes="modal-error")
             with Horizontal(classes="modal-actions"):
-                yield Button("취소", id="cancel", classes="ghost")
-                yield Button("만들기", id="submit", variant="primary")
+                yield Button(tr("취소"), id="cancel", classes="ghost")
+                yield Button(tr("만들기"), id="submit", variant="primary")
 
     def on_mount(self) -> None:
         self.query_one("#brief-area").display = False
@@ -213,8 +218,8 @@ class CreateWorkspaceModal(FormModal):
         self.query_one("#brief-actions").display = mode == "ai"
         self.query_one("#brief-help", Static).update(Text(BRIEF_HELP.get(mode, ""), style=MUTED))
         self.query_one("#f-brief", TextArea).placeholder = (
-            "예: 고객사 A는 B2B 결제 솔루션 기업, 보고서는 임원용 1~2쪽, 금액은 원화 기준" if mode == "ai"
-            else "예: 독자는 영업팀장. 결론부터, 표 위주, 출처는 공식 자료 우선"
+            tr("예: 고객사 A는 B2B 결제 솔루션 기업, 보고서는 임원용 1~2쪽, 금액은 원화 기준") if mode == "ai"
+            else tr("예: 독자는 영업팀장. 결론부터, 표 위주, 출처는 공식 자료 우선")
         )
         if mode != "none":
             self.call_after_refresh(self.query_one("#create-box", VerticalScroll).scroll_end, animate=False)
@@ -228,7 +233,7 @@ class CreateWorkspaceModal(FormModal):
     def _generate(self) -> None:
         name = self.query_one("#f-name", Input).value.strip()
         if not NAME_RE.fullmatch(name):
-            self.show_error("AI 초안을 만들려면 먼저 올바른 이름을 입력해야 함")
+            self.show_error(tr("AI 초안을 만들려면 먼저 올바른 이름을 입력해야 함"))
             return
         if self.generator is None:
             return
@@ -239,7 +244,7 @@ class CreateWorkspaceModal(FormModal):
             self.show_error(_validation_message(exc))
             return
         self.query_one("#gen", Button).disabled = True
-        self.query_one("#gen-state", Static).update(Text("초안 작성 중…", style=MUTED))
+        self.query_one("#gen-state", Static).update(Text(tr("초안 작성 중…"), style=MUTED))
         self.show_error("")
         self._run_generation(
             name=name, description=self.query_one("#f-desc", Input).value.strip(),
@@ -254,7 +259,7 @@ class CreateWorkspaceModal(FormModal):
             text, cost = await self.generator(**kwargs)
         except Exception as exc:
             with suppress(NoMatches):
-                self.show_error(f"AI 초안 실패: {str(exc)[:200]}")
+                self.show_error(tr("AI 초안 실패: {error}", error=str(exc)[:200]))
                 self.query_one("#gen-state", Static).update("")
         else:
             with suppress(NoMatches):
@@ -262,7 +267,7 @@ class CreateWorkspaceModal(FormModal):
                 self.generated = True
                 self.query_one("#create-box", VerticalScroll).scroll_end(animate=False)
                 self.query_one("#gen-state", Static).update(
-                    Text(f"초안 완료 · ${cost:.4f} · 확인하고 고친 뒤 만들기", style=MUTED)
+                    Text(tr("초안 완료 · ${cost:.4f} · 확인하고 고친 뒤 만들기", cost=cost), style=MUTED)
                 )
         finally:
             with suppress(NoMatches):
@@ -275,8 +280,8 @@ class CreateWorkspaceModal(FormModal):
         field.display = visible
         self.query_one("#l-domains").display = visible
         field.placeholder = {
-            "allow": "이 도메인에서만 검색: example.com, korea.kr",
-            "block": "제외할 도메인: spam.example.com",
+            "allow": tr("이 도메인에서만 검색: example.com, korea.kr"),
+            "block": tr("제외할 도메인: spam.example.com"),
         }.get(str(event.value), "example.com, korea.kr")
 
     @on(Button.Pressed, "#cancel")
@@ -291,13 +296,13 @@ class CreateWorkspaceModal(FormModal):
         brief_mode = str(self.query_one("#f-brief-mode", Select).value)
         brief = self.query_one("#f-brief", TextArea).text.strip() if brief_mode != "none" else ""
         if brief_mode == "ai" and not self.generated:
-            self.show_error("'AI 초안 만들기'로 초안을 먼저 만들거나 지침 방식을 바꿔야 함")
+            self.show_error(tr("'AI 초안 만들기'로 초안을 먼저 만들거나 지침 방식을 바꿔야 함"))
             return
         if len(brief) > MAX_BRIEF_CHARS:
-            self.show_error(f"지침은 {MAX_BRIEF_CHARS:,}자 이하여야 함")
+            self.show_error(tr("지침은 {limit:,}자 이하여야 함", limit=MAX_BRIEF_CHARS))
             return
         if mode != "none" and not domains:
-            self.show_error("출처 정책을 쓰려면 도메인을 하나 이상 입력해야 함")
+            self.show_error(tr("출처 정책을 쓰려면 도메인을 하나 이상 입력해야 함"))
             return
         try:
             web = WebPolicy(
@@ -364,7 +369,7 @@ def scan_files(base: Path, excluded: Path, limit: int = INDEX_LIMIT, depth: int 
             if entry.name.startswith(".") or len(found) >= limit:
                 continue
             try:
-                if entry.is_symlink():
+                if hostos.stat_is_link(entry.stat(follow_symlinks=False)):
                     continue
                 path = Path(entry.path)
                 if entry.is_dir(follow_symlinks=False):
@@ -404,13 +409,29 @@ def match_files(index: list[FileEntry], query: str, limit: int = MATCH_LIMIT) ->
     return [r[3] for r in ranked[:limit]]
 
 
+SEPARATORS = "/\\" if os.sep == "\\" else "/"
+DRIVE_RE = re.compile(r"^[A-Za-z]:")
+
+
+def folder_hint(path: Path | str) -> str:
+    text = str(path).replace(str(Path.home()), "~", 1)
+    return text.rstrip(SEPARATORS) + os.sep
+
+
+def looks_like_path(raw: str) -> bool:
+    if raw.startswith(("~", "./", "../")) or any(sep in raw for sep in SEPARATORS):
+        return True
+    return os.sep == "\\" and bool(DRIVE_RE.match(raw))
+
+
 def list_directory(raw: str, base: Path, excluded: Path) -> list[FileEntry]:
-    expanded = os.path.expanduser(raw if raw != "~" else "~/")
-    folder_text, _, prefix = expanded.rpartition("/")
-    folder = Path(folder_text or "/")
+    expanded = os.path.expanduser(raw if raw != "~" else "~" + os.sep)
+    cut = max(expanded.rfind(sep) for sep in SEPARATORS)
+    folder_text, prefix = expanded[: cut + 1], expanded[cut + 1 :]
+    folder = Path(folder_text or os.sep)
     if not folder.is_absolute():
         folder = base / folder
-    if folder.is_symlink() or not folder.is_dir() or _excluded(folder, excluded):
+    if hostos.is_link(folder) or not folder.is_dir() or _excluded(folder, excluded):
         return []
     show_hidden = prefix.startswith(".")
     low = prefix.lower()
@@ -425,12 +446,12 @@ def list_directory(raw: str, base: Path, excluded: Path) -> list[FileEntry]:
         if (entry.name.startswith(".") and not show_hidden) or (low and low not in entry.name.lower()):
             continue
         try:
-            if entry.is_symlink():
+            if hostos.stat_is_link(entry.stat(follow_symlinks=False)):
                 continue
             path = Path(entry.path)
             if entry.is_dir(follow_symlinks=False):
                 if not _excluded(path, excluded):
-                    dirs.append(FileEntry(path, True, 0, entry.name + "/"))
+                    dirs.append(FileEntry(path, True, 0, entry.name + os.sep))
             elif entry.is_file(follow_symlinks=False) and path.suffix.lower() in TEXT_EXTENSIONS:
                 files.append(FileEntry(path, False, entry.stat(follow_symlinks=False).st_size, entry.name))
         except OSError:
@@ -450,13 +471,13 @@ def _short_dir(path: Path, width: int = 36) -> str:
 
 
 class SelectedList(OptionList):
-    BINDINGS = [Binding("delete,backspace", "screen.remove_selected", "선택 해제")]
+    BINDINGS = [Binding("delete,backspace", "screen.remove_selected", tr("선택 해제"))]
 
 
 class ImportModal(FormModal):
     BINDINGS = [
-        Binding("escape", "dismiss_none", "닫기"),
-        Binding("ctrl+s", "submit", "가져오기"),
+        Binding("escape", "dismiss_none", tr("닫기")),
+        Binding("ctrl+s", "submit", tr("가져오기")),
         Binding("down", "match_move(1)", show=False),
         Binding("up", "match_move(-1)", show=False),
     ]
@@ -472,27 +493,27 @@ class ImportModal(FormModal):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal-box", id="import-box"):
-            yield Static(f"자료 가져오기 · {self.workspace.name}", classes="modal-title")
+            yield Static(tr("자료 가져오기 · {workspace}", workspace=self.workspace.name), classes="modal-title")
             yield Static(
                 Text.assemble(
-                    ("검색 위치 ", MUTED), (_short_path(self.base_dir, 60), "bold"),
-                    ("\n@이름 일부로 파일을 찾고, ~/ 나 / 로 시작하면 폴더를 탐색함\n", MUTED),
-                    ("↑↓", "bold"), (" 이동  ", MUTED), ("Enter", "bold"), (" 추가  ", MUTED),
-                    ("Ctrl+S", "bold"), (" 가져오기", MUTED),
+                    (tr("검색 위치 "), MUTED), (_short_path(self.base_dir, 60), "bold"),
+                    (tr("\n@이름 일부로 파일을 찾고, ~/ 나 / 로 시작하면 폴더를 탐색함\n"), MUTED),
+                    ("↑↓", "bold"), (tr(" 이동  "), MUTED), ("Enter", "bold"), (tr(" 추가  "), MUTED),
+                    ("Ctrl+S", "bold"), (tr(" 가져오기"), MUTED),
                 ),
                 classes="modal-sub",
             )
-            yield Input(placeholder="@meeting  또는  ~/Documents/", id="f-path")
+            yield Input(placeholder=tr("@meeting  또는  ~/Documents/"), id="f-path")
             yield OptionList(id="f-matches")
             yield Static("", id="f-total", classes="picker-label")
             yield SelectedList(id="f-selected")
             with Grid(classes="form-grid"):
-                yield Label("등급")
+                yield Label(tr("등급"))
                 yield Select(INPUT_CLASSES, value="internal", allow_blank=False, id="f-cls")
             yield Static("", classes="modal-error")
             with Horizontal(classes="modal-actions"):
-                yield Button("취소", id="cancel", classes="ghost")
-                yield Button("가져오기", id="submit", variant="primary")
+                yield Button(tr("취소"), id="cancel", classes="ghost")
+                yield Button(tr("가져오기"), id="submit", variant="primary")
 
     def on_mount(self) -> None:
         self.query_one("#f-matches").display = False
@@ -512,19 +533,19 @@ class ImportModal(FormModal):
 
     def _entry_prompt(self, entry: FileEntry) -> Text:
         if entry.is_dir:
-            return Text.assemble((entry.label, "bold"), ("  폴더", FAINT))
+            return Text.assemble((entry.label, "bold"), (tr("  폴더"), FAINT))
         too_big = entry.size > MAX_INPUT_BYTES
         text = Text(entry.label)
         text.append(f"  {human_size(entry.size)}", style=ERROR if too_big else MUTED)
         if too_big:
-            text.append("  5MB 초과", style=ERROR)
+            text.append(tr("  5MB 초과"), style=ERROR)
         return text
 
     def _update_matches(self, value: str) -> None:
         raw = value.strip().removeprefix("@")
         if not value.strip():
             self.matches = []
-        elif raw.startswith(("/", "~", "./", "../")) or "/" in raw:
+        elif looks_like_path(raw):
             self.matches = list_directory(raw, self.base_dir, self.excluded)
         elif self.index is None:
             self.matches = []
@@ -539,7 +560,7 @@ class ImportModal(FormModal):
         if self.matches:
             box.highlighted = 0
         elif value.strip():
-            box.add_option(Option(Text("찾는 중…" if self.index is None else "일치하는 파일 없음", style=FAINT),
+            box.add_option(Option(Text(tr("찾는 중…") if self.index is None else tr("일치하는 파일 없음"), style=FAINT),
                                   disabled=True))
 
     @on(Input.Changed, "#f-path")
@@ -556,8 +577,7 @@ class ImportModal(FormModal):
     def _pick(self, entry: FileEntry) -> None:
         field = self.query_one("#f-path", Input)
         if entry.is_dir:
-            shown = str(entry.path).replace(str(Path.home()), "~", 1)
-            field.value = shown.rstrip("/") + "/"
+            field.value = folder_hint(entry.path)
             field.cursor_position = len(field.value)
             return
         self._add(entry)
@@ -565,10 +585,10 @@ class ImportModal(FormModal):
 
     def _add(self, entry: FileEntry) -> None:
         if entry.size > MAX_INPUT_BYTES:
-            self.show_error(f"{entry.path.name}: 5MB를 넘는 파일은 가져올 수 없음")
+            self.show_error(tr("{name}: 5MB를 넘는 파일은 가져올 수 없음", name=entry.path.name))
             return
         if any(e.path == entry.path for e in self.selected):
-            self.show_error(f"{entry.path.name}: 이미 선택함")
+            self.show_error(tr("{name}: 이미 선택함", name=entry.path.name))
             return
         self.show_error("")
         self.selected.append(entry)
@@ -586,11 +606,11 @@ class ImportModal(FormModal):
         total = sum(e.size for e in self.selected)
         label = self.query_one("#f-total", Static)
         if self.selected:
-            label.update(Text.assemble(("선택한 파일 ", MUTED), (f"{len(self.selected)}개", "bold"),
-                                       (" · 합계 ", MUTED), (human_size(total), "bold"),
-                                       ("   Del로 선택 해제", FAINT)))
+            label.update(Text.assemble((tr("선택한 파일 "), MUTED), (tr("{count}개", count=len(self.selected)), "bold"),
+                                       (tr(" · 합계 "), MUTED), (human_size(total), "bold"),
+                                       (tr("   Del로 선택 해제"), FAINT)))
         else:
-            label.update(Text("선택한 파일 없음", style=FAINT))
+            label.update(Text(tr("선택한 파일 없음"), style=FAINT))
 
     def action_remove_selected(self) -> None:
         box = self.query_one("#f-selected", SelectedList)
@@ -622,11 +642,11 @@ class ImportModal(FormModal):
             return
         path = Path(os.path.expanduser(raw))
         path = path if path.is_absolute() else self.base_dir / path
-        if path.is_symlink() or not path.is_file():
-            self.show_error(f"{raw}: 일반 파일을 찾을 수 없음")
+        if hostos.is_link(path) or not path.is_file():
+            self.show_error(tr("{name}: 일반 파일을 찾을 수 없음", name=raw))
             return
         if path.suffix.lower() not in TEXT_EXTENSIONS:
-            self.show_error(f"{path.name}: 텍스트 계열 파일만 가져올 수 있음")
+            self.show_error(tr("{name}: 텍스트 계열 파일만 가져올 수 있음", name=path.name))
             return
         self._add(FileEntry(path, False, path.lstat().st_size, path.name))
         event.input.value = ""
@@ -646,7 +666,7 @@ class ImportModal(FormModal):
     @on(Button.Pressed, "#submit")
     def action_submit(self) -> None:
         if not self.selected:
-            self.show_error("가져올 파일을 하나 이상 선택해야 함")
+            self.show_error(tr("가져올 파일을 하나 이상 선택해야 함"))
             return
         cls = str(self.query_one("#f-cls", Select).value)
         audit = AuditLog()
@@ -668,9 +688,9 @@ class ImportModal(FormModal):
 
 class RunImportModal(FormModal):
     BINDINGS = [
-        Binding("escape", "dismiss_none", "닫기"),
-        Binding("ctrl+s", "submit", "가져오기"),
-        Binding("space", "toggle", "선택", show=False),
+        Binding("escape", "dismiss_none", tr("닫기")),
+        Binding("ctrl+s", "submit", tr("가져오기")),
+        Binding("space", "toggle", tr("선택"), show=False),
     ]
 
     def __init__(self, workspace: Workspace) -> None:
@@ -681,23 +701,23 @@ class RunImportModal(FormModal):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal-box", id="run-import-box"):
-            yield Static(f"다른 작업 영역 기록 가져오기 · {self.workspace.name}", classes="modal-title")
+            yield Static(tr("다른 작업 영역 기록 가져오기 · {workspace}", workspace=self.workspace.name), classes="modal-title")
             yield Static(
                 Text.assemble(
-                    ("다른 작업 영역에서 완료된 보고서를 이 작업 영역의 입력 자료로 복사함\n", MUTED),
-                    ("Space/Enter", "bold"), (" 선택  ", MUTED), ("Ctrl+S", "bold"), (" 가져오기", MUTED),
+                    (tr("다른 작업 영역에서 완료된 보고서를 이 작업 영역의 입력 자료로 복사함\n"), MUTED),
+                    ("Space/Enter", "bold"), (tr(" 선택  "), MUTED), ("Ctrl+S", "bold"), (tr(" 가져오기"), MUTED),
                 ),
                 classes="modal-sub",
             )
             yield OptionList(id="r-list")
             yield Static("", id="r-total", classes="picker-label")
             with Grid(classes="form-grid"):
-                yield Label("등급")
+                yield Label(tr("등급"))
                 yield Select(INPUT_CLASSES, value="internal", allow_blank=False, id="r-cls")
             yield Static("", classes="modal-error")
             with Horizontal(classes="modal-actions"):
-                yield Button("취소", id="cancel", classes="ghost")
-                yield Button("가져오기", id="submit", variant="primary")
+                yield Button(tr("취소"), id="cancel", classes="ghost")
+                yield Button(tr("가져오기"), id="submit", variant="primary")
 
     def on_mount(self) -> None:
         for name in Workspace.list_names():
@@ -719,7 +739,7 @@ class RunImportModal(FormModal):
             box.add_options([Option(self._prompt(i)) for i in range(len(self.entries))])
             box.highlighted = 0
         else:
-            box.add_option(Option(Text("가져올 수 있는 다른 작업 영역의 보고서가 없음", style=FAINT), disabled=True))
+            box.add_option(Option(Text(tr("가져올 수 있는 다른 작업 영역의 보고서가 없음"), style=FAINT), disabled=True))
         self._refresh_total()
         box.focus()
 
@@ -740,10 +760,10 @@ class RunImportModal(FormModal):
         total = sum(self.entries[i][2] for i in self.chosen)
         label = self.query_one("#r-total", Static)
         if self.chosen:
-            label.update(Text.assemble(("선택한 보고서 ", MUTED), (f"{len(self.chosen)}개", "bold"),
-                                       (" · 합계 ", MUTED), (human_size(total), "bold")))
+            label.update(Text.assemble((tr("선택한 보고서 "), MUTED), (tr("{count}개", count=len(self.chosen)), "bold"),
+                                       (tr(" · 합계 "), MUTED), (human_size(total), "bold")))
         else:
-            label.update(Text("선택한 보고서 없음", style=FAINT))
+            label.update(Text(tr("선택한 보고서 없음"), style=FAINT))
 
     def action_toggle(self) -> None:
         box = self.query_one("#r-list", OptionList)
@@ -765,7 +785,7 @@ class RunImportModal(FormModal):
     @on(Button.Pressed, "#submit")
     def action_submit(self) -> None:
         if not self.chosen:
-            self.show_error("가져올 보고서를 하나 이상 선택해야 함")
+            self.show_error(tr("가져올 보고서를 하나 이상 선택해야 함"))
             return
         wanted = str(self.query_one("#r-cls", Select).value)
         audit = AuditLog()
@@ -790,8 +810,8 @@ class RunImportModal(FormModal):
 
 class ExportModal(FormModal):
     BINDINGS = [
-        Binding("escape", "dismiss_none", "닫기"),
-        Binding("ctrl+s", "submit", "복사"),
+        Binding("escape", "dismiss_none", tr("닫기")),
+        Binding("ctrl+s", "submit", tr("복사")),
         Binding("down", "match_move(1)", show=False),
         Binding("up", "match_move(-1)", show=False),
     ]
@@ -804,7 +824,7 @@ class ExportModal(FormModal):
         self.excluded = home_path().expanduser().resolve()
         self.dirs: list[FileEntry] = []
 
-    heading = "보고서 복사"
+    heading = tr("보고서 복사")
 
     def file_label(self) -> str:
         return export_file_name(self.record) + ".md"
@@ -814,19 +834,19 @@ class ExportModal(FormModal):
             yield Static(self.heading, classes="modal-title")
             yield Static(
                 Text.assemble(
-                    ("파일 ", MUTED), (self.file_label(), "bold"),
-                    ("\n복사할 폴더 경로를 적거나 목록에서 고름. 같은 이름이 있으면 번호를 붙여 새로 만듦\n", MUTED),
-                    ("↑↓", "bold"), (" 이동  ", MUTED), ("Enter", "bold"), (" 폴더 열기  ", MUTED),
-                    ("Ctrl+S", "bold"), (" 복사", MUTED),
+                    (tr("파일 "), MUTED), (self.file_label(), "bold"),
+                    (tr("\n복사할 폴더 경로를 적거나 목록에서 고름. 같은 이름이 있으면 번호를 붙여 새로 만듦\n"), MUTED),
+                    ("↑↓", "bold"), (tr(" 이동  "), MUTED), ("Enter", "bold"), (tr(" 폴더 열기  "), MUTED),
+                    ("Ctrl+S", "bold"), (tr(" 복사"), MUTED),
                 ),
                 classes="modal-sub",
             )
-            yield Input(value=self.start_dir, placeholder="~/Documents/", id="x-path")
+            yield Input(value=self.start_dir, placeholder=folder_hint(Path.home() / "Documents"), id="x-path")
             yield OptionList(id="x-dirs")
             yield Static("", classes="modal-error")
             with Horizontal(classes="modal-actions"):
-                yield Button("취소", id="cancel", classes="ghost")
-                yield Button("복사", id="submit", variant="primary")
+                yield Button(tr("취소"), id="cancel", classes="ghost")
+                yield Button(tr("복사"), id="submit", variant="primary")
 
     def on_mount(self) -> None:
         field = self.query_one("#x-path", Input)
@@ -856,7 +876,7 @@ class ExportModal(FormModal):
 
     def _enter(self, entry: FileEntry) -> None:
         field = self.query_one("#x-path", Input)
-        field.value = str(entry.path).replace(str(Path.home()), "~", 1).rstrip("/") + "/"
+        field.value = folder_hint(entry.path)
         field.cursor_position = len(field.value)
         field.focus()
 
@@ -893,7 +913,7 @@ class ExportModal(FormModal):
 
 
 class ActionExportModal(ExportModal):
-    heading = "제안 파일 복사"
+    heading = tr("제안 파일 복사")
 
     def __init__(self, workspace: Workspace, action_id: str, file_name: str, start_dir: str) -> None:
         super().__init__(workspace, {}, start_dir)
@@ -917,7 +937,7 @@ class ActionExportModal(ExportModal):
 
 
 class ProfileModal(FormModal):
-    BINDINGS = [Binding("escape", "dismiss_none", "닫기"), Binding("ctrl+s", "submit", "저장")]
+    BINDINGS = [Binding("escape", "dismiss_none", tr("닫기")), Binding("ctrl+s", "submit", tr("저장"))]
 
     def __init__(self, workspace: Workspace) -> None:
         super().__init__()
@@ -926,26 +946,26 @@ class ProfileModal(FormModal):
     def compose(self) -> ComposeResult:
         cfg = self.workspace.config
         with VerticalScroll(classes="modal-box", id="profile-box"):
-            yield Static(f"업무 프로필 · {cfg.name}", classes="modal-title")
+            yield Static(tr("업무 프로필 · {workspace}", workspace=cfg.name), classes="modal-title")
             yield Static(
-                "모든 에이전트 요청에 함께 전달되어 무엇이 중요한지 판단하는 기준이 됨 (캐시되어 추가 비용은 작음). "
-                "사실의 출처로는 쓰지 않음",
+                tr("모든 에이전트 요청에 함께 전달되어 무엇이 중요한지 판단하는 기준이 됨 (캐시되어 추가 비용은 작음). "
+                   "사실의 출처로는 쓰지 않음"),
                 classes="modal-sub",
             )
             with Grid(classes="form-grid"):
                 yield from profile_grid(cfg.profile)
-            yield Static("반복 업무·관심 이슈 · 정기 정리와 행동 제안의 기준", classes="field-title")
+            yield Static(tr("반복 업무·관심 이슈 · 정기 정리와 행동 제안의 기준"), classes="field-title")
             yield TextArea(cfg.profile.focus, id="f-focus", soft_wrap=True, classes="guide-area focus-area")
-            yield Static("자동화", classes="field-title")
+            yield Static(tr("자동화"), classes="field-title")
             with Horizontal(classes="switch-row"):
                 yield Switch(value=cfg.knowledge, id="f-knowledge")
-                yield SwitchLabel("누적 지식", "f-knowledge")
+                yield SwitchLabel(tr("누적 지식"), "f-knowledge")
                 yield Switch(value=bool(cfg.actions), id="f-actions")
-                yield SwitchLabel("행동 제안", "f-actions")
+                yield SwitchLabel(tr("행동 제안"), "f-actions")
             yield Static("", classes="modal-error")
             with Horizontal(classes="modal-actions"):
-                yield Button("취소", id="cancel", classes="ghost")
-                yield Button("저장", id="submit", variant="primary")
+                yield Button(tr("취소"), id="cancel", classes="ghost")
+                yield Button(tr("저장"), id="submit", variant="primary")
 
     def on_mount(self) -> None:
         self.query_one("#f-focus", TextArea).placeholder = FOCUS_HINT
@@ -985,12 +1005,13 @@ def schedule_preview(text: str, now: datetime | None = None) -> Text:
     moment = schedule.next_after(now or datetime.now())
     return Text.assemble(
         (schedule.describe(), "bold"),
-        (f"  ·  다음 실행 {moment:%m-%d}({WEEKDAY_NAMES[moment.weekday()]}) {moment:%H:%M}", MUTED),
+        (tr("  ·  다음 실행 {date}({day}) {time}", date=f"{moment:%m-%d}", day=WEEKDAY_NAMES[moment.weekday()],
+            time=f"{moment:%H:%M}"), MUTED),
     )
 
 
 class DigestModal(FormModal):
-    BINDINGS = [Binding("escape", "dismiss_none", "닫기"), Binding("ctrl+s", "submit", "저장")]
+    BINDINGS = [Binding("escape", "dismiss_none", tr("닫기")), Binding("ctrl+s", "submit", tr("저장"))]
 
     def __init__(self, workspace: Workspace, spec: DigestSpec | None = None) -> None:
         super().__init__()
@@ -1001,42 +1022,43 @@ class DigestModal(FormModal):
         spec = self.spec
         limit = self.workspace.config.web.max_searches_per_task
         with VerticalScroll(classes="modal-box", id="digest-box"):
-            yield Static("정기 정리 편집" if spec else "새 정기 정리", classes="modal-title")
+            yield Static(tr("정기 정리 편집") if spec else tr("새 정기 정리"), classes="modal-title")
             yield Static(
-                "정한 일정마다 에이전트 하나가 지난 실행 이후 새 소식만 웹에서 찾아 정리함. 이미 보고한 링크는 건너뛰고, "
-                "결과는 기록 탭에 쌓이며 누적 지식과 행동 제안으로 이어짐. TUI가 열려 있을 때 실행되고, "
-                "항상 실행하려면 `claubiz agent install`",
+                tr("정한 일정마다 에이전트 하나가 지난 실행 이후 새 소식만 웹에서 찾아 정리함. 이미 보고한 링크는 건너뛰고, "
+                   "결과는 기록 탭에 쌓이며 누적 지식과 행동 제안으로 이어짐. TUI가 열려 있을 때 실행되고, "
+                   "항상 실행하려면 `claubiz agent install`"),
                 classes="modal-sub",
             )
             with Grid(classes="form-grid"):
-                yield Label("이름")
-                yield Input(spec.title if spec else "", placeholder="예: 경쟁사 주간 동향", id="d-title", max_length=60)
-                yield Label("일정")
-                yield Input(spec.schedule if spec else "평일 09:00", placeholder="매일 09:00, 평일 08:30, 월,목 10:00, "
-                            "6시간마다", id="d-schedule", max_length=80)
+                yield Label(tr("이름"))
+                yield Input(spec.title if spec else "", placeholder=tr("예: 경쟁사 주간 동향"), id="d-title", max_length=60)
+                yield Label(tr("일정"))
+                yield Input(spec.schedule if spec else tr("평일 09:00"),
+                            placeholder=tr("매일 09:00, 평일 08:30, 월,목 10:00, 6시간마다"), id="d-schedule",
+                            max_length=80)
                 yield Label("")
                 yield Static("", id="d-next")
-                yield Label("모델")
+                yield Label(tr("모델"))
                 yield Select(DIGEST_MODELS, value=spec.model if spec else DEFAULT_DIGEST_MODEL, allow_blank=False,
                              id="d-model")
-                yield Label("검색 / 실행 상한")
+                yield Label(tr("검색 / 실행 상한"))
                 with Horizontal(classes="pair"):
                     yield Input(str(spec.max_searches if spec else min(4, limit)), type="integer", id="d-searches",
-                                max_length=2, tooltip=f"실행마다 최대 웹 검색 수 (작업 영역 상한 {limit}회)")
+                                max_length=2, tooltip=tr("실행마다 최대 웹 검색 수 (작업 영역 상한 {limit}회)", limit=limit))
                     yield Input(str(spec.run_cap if spec else DEFAULT_DIGEST_CAP), type="number", id="d-cap",
-                                tooltip="실행마다 예산 상한 (USD)")
-                yield Label("켜기")
+                                tooltip=tr("실행마다 예산 상한 (USD)"))
+                yield Label(tr("켜기"))
                 yield Switch(value=spec.enabled if spec else True, id="d-enabled")
-            yield Static("요청 · 무엇을 찾아 어떻게 정리할지", classes="field-title")
+            yield Static(tr("요청 · 무엇을 찾아 어떻게 정리할지"), classes="field-title")
             yield TextArea(spec.request if spec else "", id="d-request", soft_wrap=True, classes="guide-area")
             yield Static("", classes="modal-error")
             with Horizontal(classes="modal-actions"):
-                yield Button("취소", id="cancel", classes="ghost")
-                yield Button("저장", id="submit", variant="primary")
+                yield Button(tr("취소"), id="cancel", classes="ghost")
+                yield Button(tr("저장"), id="submit", variant="primary")
 
     def on_mount(self) -> None:
         self.query_one("#d-request", TextArea).placeholder = (
-            "예: 국내 전자계약 경쟁사의 신기능, 가격 변경, 투자 소식. 중요도 순으로 5개 이내, 우리에게 미칠 영향 한 줄씩"
+            tr("예: 국내 전자계약 경쟁사의 신기능, 가격 변경, 투자 소식. 중요도 순으로 5개 이내, 우리에게 미칠 영향 한 줄씩")
         )
         self.query_one("#d-next", Static).update(schedule_preview(self.query_one("#d-schedule", Input).value))
         self.query_one("#d-title", Input).focus()
@@ -1062,7 +1084,7 @@ class DigestModal(FormModal):
             values["max_searches"] = int(self.query_one("#d-searches", Input).value or 0)
             values["run_cap"] = float(self.query_one("#d-cap", Input).value or 0)
         except ValueError:
-            self.show_error("검색 수와 실행 상한은 숫자여야 함")
+            self.show_error(tr("검색 수와 실행 상한은 숫자여야 함"))
             return
         store = DigestStore(self.workspace)
         audit = AuditLog()
@@ -1073,7 +1095,7 @@ class DigestModal(FormModal):
                              schedule=spec.schedule, model=spec.model or "config", run_cap=spec.run_cap, via="tui")
             else:
                 if values["max_searches"] > self.workspace.config.web.max_searches_per_task:
-                    raise DigestError("검색 수는 작업 영역 상한 이하여야 함")
+                    raise DigestError(tr("검색 수는 작업 영역 상한 이하여야 함"))
                 if values["enabled"] and not self.spec.enabled:
                     values["failures"] = 0
                 spec = store.update(self.spec.id, **values)
@@ -1091,11 +1113,11 @@ class DigestModal(FormModal):
 
 class ConfirmModal(ModalScreen[bool]):
     BINDINGS = [
-        Binding("escape,n", "answer(False)", "취소"),
-        Binding("y", "answer(True)", "제거"),
+        Binding("escape,n", "answer(False)", tr("취소")),
+        Binding("y", "answer(True)", tr("제거")),
     ]
 
-    def __init__(self, title: str, detail: str, confirm_label: str = "제거") -> None:
+    def __init__(self, title: str, detail: str, confirm_label: str = tr("제거")) -> None:
         super().__init__(classes="toast-screen")
         self.title_text = title
         self.detail = detail
@@ -1107,8 +1129,8 @@ class ConfirmModal(ModalScreen[bool]):
             yield Static(Text(self.detail, style=MUTED), classes="confirm-detail")
             with Horizontal(classes="confirm-actions"):
                 yield Static(Text.assemble(("Y", "bold"), (f" {self.confirm_label}  ", MUTED), ("N/Esc", "bold"),
-                                           (" 취소", MUTED)), classes="confirm-keys")
-                yield Button("취소", id="no", classes="ghost")
+                                           (tr(" 취소"), MUTED)), classes="confirm-keys")
+                yield Button(tr("취소"), id="no", classes="ghost")
                 yield Button(self.confirm_label, id="yes", variant="error")
 
     def on_mount(self) -> None:
@@ -1131,7 +1153,7 @@ class ConfirmModal(ModalScreen[bool]):
 
 
 class ContextMenu(ModalScreen[str | None]):
-    BINDINGS = [Binding("escape", "dismiss_none", "닫기")]
+    BINDINGS = [Binding("escape", "dismiss_none", tr("닫기"))]
 
     def __init__(self, items: list[tuple[str, str]], offset: Offset, title: str = "") -> None:
         super().__init__(classes="menu-screen")
@@ -1167,7 +1189,7 @@ class ContextMenu(ModalScreen[str | None]):
 
 
 class BriefModal(FormModal):
-    BINDINGS = [Binding("escape", "dismiss_none", "닫기"), Binding("ctrl+s", "submit", "저장")]
+    BINDINGS = [Binding("escape", "dismiss_none", tr("닫기")), Binding("ctrl+s", "submit", tr("저장"))]
 
     def __init__(self, workspace: Workspace, generator: BriefGenerator | None = None) -> None:
         super().__init__()
@@ -1176,19 +1198,19 @@ class BriefModal(FormModal):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal-box", id="brief-box"):
-            yield Static(f"작업 영역 지침 · {self.workspace.name}", classes="modal-title")
+            yield Static(tr("작업 영역 지침 · {workspace}", workspace=self.workspace.name), classes="modal-title")
             yield Static(
-                "이 작업 영역의 모든 에이전트 요청에 함께 전달됨(캐시되어 추가 비용은 작음). 비우고 저장하면 지침이 삭제됨. "
-                "'AI로 다듬기'는 지금 내용을 참고해 새 초안을 만듦",
+                tr("이 작업 영역의 모든 에이전트 요청에 함께 전달됨(캐시되어 추가 비용은 작음). 비우고 저장하면 지침이 삭제됨. "
+                   "'AI로 다듬기'는 지금 내용을 참고해 새 초안을 만듦"),
                 classes="modal-sub",
             )
             yield TextArea(self.workspace.read_brief(), id="f-brief", soft_wrap=True)
             yield Static("", classes="modal-error")
             with Horizontal(classes="modal-actions"):
                 yield Static("", id="gen-state")
-                yield Button("AI로 다듬기", id="gen", classes="ghost", disabled=self.generator is None)
-                yield Button("취소", id="cancel", classes="ghost")
-                yield Button("저장", id="submit", variant="primary")
+                yield Button(tr("AI로 다듬기"), id="gen", classes="ghost", disabled=self.generator is None)
+                yield Button(tr("취소"), id="cancel", classes="ghost")
+                yield Button(tr("저장"), id="submit", variant="primary")
 
     def on_mount(self) -> None:
         self.query_one("#f-brief", TextArea).focus()
@@ -1201,7 +1223,7 @@ class BriefModal(FormModal):
         web = cfg.web
         mode = "allow" if web.allowed_domains else ("block" if web.blocked_domains else "none")
         self.query_one("#gen", Button).disabled = True
-        self.query_one("#gen-state", Static).update(Text("초안 작성 중…", style=MUTED))
+        self.query_one("#gen-state", Static).update(Text(tr("초안 작성 중…"), style=MUTED))
         self._run_generation(
             name=cfg.name, description=cfg.description, scope=cfg.scope,
             web_note=web_note(mode, web.allowed_domains or web.blocked_domains),
@@ -1215,12 +1237,12 @@ class BriefModal(FormModal):
             text, cost = await self.generator(**kwargs)
         except Exception as exc:
             with suppress(NoMatches):
-                self.show_error(f"AI 초안 실패: {str(exc)[:200]}")
+                self.show_error(tr("AI 초안 실패: {error}", error=str(exc)[:200]))
                 self.query_one("#gen-state", Static).update("")
         else:
             with suppress(NoMatches):
                 self.query_one("#f-brief", TextArea).text = text
-                self.query_one("#gen-state", Static).update(Text(f"초안 완료 · ${cost:.4f}", style=MUTED))
+                self.query_one("#gen-state", Static).update(Text(tr("초안 완료 · ${cost:.4f}", cost=cost), style=MUTED))
         finally:
             with suppress(NoMatches):
                 self.query_one("#gen", Button).disabled = False
@@ -1241,9 +1263,9 @@ class BriefModal(FormModal):
 
 
 PLAYBOOK_OPTIONS = (
-    ("p-web", "웹 조사 필요", True),
-    ("p-inputs", "입력 자료 필요", False),
-    ("p-history", "이전 실행과 비교", False),
+    ("p-web", tr("웹 조사 필요"), True),
+    ("p-inputs", tr("입력 자료 필요"), False),
+    ("p-history", tr("이전 실행과 비교"), False),
 )
 
 
@@ -1259,40 +1281,40 @@ class SwitchLabel(Static):
 
 
 class PlaybookModal(FormModal):
-    BINDINGS = [Binding("escape", "dismiss_none", "닫기"), Binding("ctrl+s", "submit", "저장")]
+    BINDINGS = [Binding("escape", "dismiss_none", tr("닫기")), Binding("ctrl+s", "submit", tr("저장"))]
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(classes="modal-box", id="playbook-box"):
-            yield Static("새 플레이북", classes="modal-title")
+            yield Static(tr("새 플레이북"), classes="modal-title")
             yield Static(
-                "자주 하는 작업 유형을 저장해 두고 목표만 바꿔 다시 씀. 모든 작업 영역에서 사용 가능", classes="modal-sub"
+                tr("자주 하는 작업 유형을 저장해 두고 목표만 바꿔 다시 씀. 모든 작업 영역에서 사용 가능"), classes="modal-sub"
             )
             with Grid(classes="form-grid"):
                 yield Label("ID")
-                yield Input(placeholder="partner-scan  (소문자, 숫자, -)", id="p-id", max_length=40)
-                yield Label("이름")
-                yield Input(placeholder="예: 협력사 후보 발굴", id="p-title", max_length=60)
-                yield Label("설명")
-                yield Input(placeholder="목록에 보일 한 줄 설명", id="p-desc", max_length=300)
-                yield Label("목표 예시")
-                yield Input(placeholder="예: 국내 물류 스타트업 중 협력 후보 10곳", id="p-hint", max_length=200)
-            yield Static("옵션 · 이름을 눌러도 켜고 끌 수 있음", classes="field-title")
+                yield Input(placeholder=tr("partner-scan  (소문자, 숫자, -)"), id="p-id", max_length=40)
+                yield Label(tr("이름"))
+                yield Input(placeholder=tr("예: 협력사 후보 발굴"), id="p-title", max_length=60)
+                yield Label(tr("설명"))
+                yield Input(placeholder=tr("목록에 보일 한 줄 설명"), id="p-desc", max_length=300)
+                yield Label(tr("목표 예시"))
+                yield Input(placeholder=tr("예: 국내 물류 스타트업 중 협력 후보 10곳"), id="p-hint", max_length=200)
+            yield Static(tr("옵션 · 이름을 눌러도 켜고 끌 수 있음"), classes="field-title")
             with Horizontal(classes="switch-row"):
                 for switch_id, label, value in PLAYBOOK_OPTIONS:
                     yield Switch(value=value, id=switch_id)
                     yield SwitchLabel(label, switch_id)
-            yield Static("계획 지침 · 작업을 어떻게 나눌지", classes="field-title")
+            yield Static(tr("계획 지침 · 작업을 어떻게 나눌지"), classes="field-title")
             yield TextArea(id="p-plan", soft_wrap=True, classes="guide-area")
-            yield Static("보고서 지침 · 결과물을 어떤 형태로 쓸지", classes="field-title")
+            yield Static(tr("보고서 지침 · 결과물을 어떤 형태로 쓸지"), classes="field-title")
             yield TextArea(id="p-synth", soft_wrap=True, classes="guide-area")
             yield Static("", classes="modal-error")
             with Horizontal(classes="modal-actions"):
-                yield Button("취소", id="cancel", classes="ghost")
-                yield Button("저장", id="submit", variant="primary")
+                yield Button(tr("취소"), id="cancel", classes="ghost")
+                yield Button(tr("저장"), id="submit", variant="primary")
 
     def on_mount(self) -> None:
-        self.query_one("#p-plan", TextArea).placeholder = "예: 후보 기업을 업종별로 나눠 조사하고, 기업마다 규모, 주요 고객, 최근 소식 정리"
-        self.query_one("#p-synth", TextArea).placeholder = "예: 요약 3줄, 후보 비교표, 우선순위와 접촉 제안 순서"
+        self.query_one("#p-plan", TextArea).placeholder = tr("예: 후보 기업을 업종별로 나눠 조사하고, 기업마다 규모, 주요 고객, 최근 소식 정리")
+        self.query_one("#p-synth", TextArea).placeholder = tr("예: 요약 3줄, 후보 비교표, 우선순위와 접촉 제안 순서")
         self.query_one("#p-id", Input).focus()
 
     @on(Button.Pressed, "#cancel")
@@ -1328,29 +1350,29 @@ class PlaybookModal(FormModal):
 def _plan_markdown(record: dict) -> str:
     plan = record.get("plan") or {}
     tasks = {t["id"]: t for t in record.get("tasks", [])}
-    lines = [f"# {plan.get('title', '계획')}", "", plan.get("approach", ""), ""]
-    lines += ["| ID | 작업 | effort | 웹 | 선행 | 상태 | 비용 |", "|---|---|---|---|---|---|---|"]
+    lines = [f"# {plan.get('title', tr('계획'))}", "", plan.get("approach", ""), ""]
+    lines += [tr("| ID | 작업 | effort | 웹 | 선행 | 상태 | 비용 |"), "|---|---|---|---|---|---|---|"]
     for t in plan.get("tasks", []):
         state = tasks.get(t["id"], {})
-        web = f"{t.get('max_searches', 0)}회" if t.get("use_web") else "-"
+        web = tr("{count}회", count=t.get("max_searches", 0)) if t.get("use_web") else "-"
         cost = f"${state.get('cost', 0):.4f}" if state else "-"
         title = str(t.get("title", "")).replace("|", "/")
         deps = ", ".join(t.get("depends_on", [])) or "-"
         lines.append(f"| {t['id']} | {title} | {state.get('effort', t.get('effort'))} | {web} | {deps} | "
                      f"{state.get('status', '-')} | {cost} |")
     if plan.get("outline"):
-        lines += ["", "## 보고서 목차", ""] + [f"{i}. {h}" for i, h in enumerate(plan["outline"], start=1)]
+        lines += ["", tr("## 보고서 목차"), ""] + [f"{i}. {h}" for i, h in enumerate(plan["outline"], start=1)]
     if record.get("plan_notes"):
-        lines += ["", "## 계획 조정", ""] + [f"- {n}" for n in record["plan_notes"]]
-    lines += ["", "## 목표", "", record.get("goal", "")]
+        lines += ["", tr("## 계획 조정"), ""] + [f"- {n}" for n in record["plan_notes"]]
+    lines += ["", tr("## 목표"), "", record.get("goal", "")]
     return "\n".join(lines)
 
 
 class RunViewerModal(ModalScreen[str | None]):
     BINDINGS = [
-        Binding("escape", "dismiss", "닫기"),
-        Binding("ctrl+enter", "follow", "이어서 작업"),
-        Binding("c", "export", "보고서 복사"),
+        Binding("escape", "dismiss", tr("닫기")),
+        Binding("ctrl+enter", "follow", tr("이어서 작업")),
+        Binding("c", "export", tr("보고서 복사")),
     ]
 
     def action_follow(self) -> None:
@@ -1378,20 +1400,20 @@ class RunViewerModal(ModalScreen[str | None]):
                 yield Static(meta, id="viewer-meta")
             initial = "pane-report" if self.report else ("pane-notes" if self.notes else "pane-plan")
             with TabbedContent(initial=initial):
-                with TabPane("보고서", id="pane-report"):
-                    yield SafeMarkdownViewer(self.report or "# 보고서 없음\n\n이 실행은 보고서를 만들지 않았음",
+                with TabPane(tr("보고서"), id="pane-report"):
+                    yield SafeMarkdownViewer(self.report or tr("# 보고서 없음\n\n이 실행은 보고서를 만들지 않았음"),
                                              show_table_of_contents=bool(self.report), id="report-view")
-                with TabPane(f"작업 노트 {len(self.notes)}", id="pane-notes"):
+                with TabPane(tr("작업 노트 {count}", count=len(self.notes)), id="pane-notes"):
                     with Horizontal():
                         yield OptionList(*[Option(self._note_label(tid), id=tid) for tid, _ in self.notes],
                                          id="note-list")
-                        yield SafeMarkdownViewer(self.notes[0][1] if self.notes else "작업 노트 없음",
+                        yield SafeMarkdownViewer(self.notes[0][1] if self.notes else tr("작업 노트 없음"),
                                                  show_table_of_contents=False, id="note-view")
-                with TabPane("계획", id="pane-plan"):
+                with TabPane(tr("계획"), id="pane-plan"):
                     yield Markdown(_plan_markdown(record), open_links=False, id="plan-view")
             yield Static(
-                Text(f"Esc 닫기 · Ctrl+Enter 이어서 작업 또는 재개 · C 보고서 복사 · 링크는 브라우저로 열림 · "
-                     f"{self.workspace.root / 'outputs' / record['run_id']}",
+                Text(tr("Esc 닫기 · Ctrl+Enter 이어서 작업 또는 재개 · C 보고서 복사 · 링크는 브라우저로 열림 · {path}",
+                        path=self.workspace.root / "outputs" / record["run_id"]),
                      style=MUTED),
                 classes="modal-hint",
             )

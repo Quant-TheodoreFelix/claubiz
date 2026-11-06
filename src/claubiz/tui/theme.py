@@ -1,5 +1,7 @@
 from textual.theme import Theme
 
+from ..i18n import tr
+
 CLAY = "#D77757"
 CLAY_SOFT = "#E8A68C"
 PERIWINKLE = "#B1B9F9"
@@ -91,18 +93,18 @@ SOLID = Theme(
 THEMES = {NATIVE.name: NATIVE, SOLID.name: SOLID}
 
 STATUS_STYLES: dict[str, tuple[str, str, str]] = {
-    "pending": ("○", "대기", FAINT),
-    "queued": ("○", "대기열", MUTED),
-    "running": ("●", "실행 중", CLAY),
-    "done": ("●", "완료", SUCCESS),
-    "reused": ("●", "재사용", PERIWINKLE),
-    "failed": ("●", "실패", ERROR),
-    "blocked": ("●", "예산 차단", ERROR),
-    "skipped": ("○", "건너뜀", WARNING),
-    "planned": ("○", "계획됨", MUTED),
-    "rejected": ("○", "취소됨", FAINT),
-    "cancelled": ("○", "중단됨", WARNING),
-    "interrupted": ("○", "비정상 종료", WARNING),
-    "completed": ("●", "완료", SUCCESS),
-    "partial": ("◐", "일부 완료", WARNING),
+    "pending": ("○", tr("대기"), FAINT),
+    "queued": ("○", tr("대기열"), MUTED),
+    "running": ("●", tr("실행 중"), CLAY),
+    "done": ("●", tr("완료"), SUCCESS),
+    "reused": ("●", tr("재사용"), PERIWINKLE),
+    "failed": ("●", tr("실패"), ERROR),
+    "blocked": ("●", tr("예산 차단"), ERROR),
+    "skipped": ("○", tr("건너뜀"), WARNING),
+    "planned": ("○", tr("계획됨"), MUTED),
+    "rejected": ("○", tr("취소됨"), FAINT),
+    "cancelled": ("○", tr("중단됨"), WARNING),
+    "interrupted": ("○", tr("비정상 종료"), WARNING),
+    "completed": ("●", tr("완료"), SUCCESS),
+    "partial": ("◐", tr("일부 완료"), WARNING),
 }

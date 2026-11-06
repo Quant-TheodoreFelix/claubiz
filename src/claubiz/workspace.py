@@ -2,7 +2,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import stat
 import time
 import tomllib
@@ -11,7 +10,17 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from .paths import confine, ensure_private_dir, home, home_path, read_bytes_nofollow, write_private_text
+from . import hostos
+from .i18n import tr
+from .paths import (
+    confine,
+    ensure_private_dir,
+    home,
+    home_path,
+    portable_name_problem,
+    read_bytes_nofollow,
+    write_private_text,
+)
 from .policy import Classification, Scope, scope_allows_inputs, validate_domains
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
@@ -20,22 +29,22 @@ TEXT_EXTENSIONS = frozenset({".md", ".txt", ".csv", ".tsv", ".json", ".html", ".
 MAX_INPUT_BYTES = 5 * 1024 * 1024
 RUN_ID_RE = re.compile(r"^r\d{8}-\d{6}-[0-9a-f]{6}$")
 MAX_BRIEF_CHARS = 20000
-REPORT_FOOTER = "\n---\n실행 "
+REPORT_FOOTERS = ("\n---\n실행 ", "\n---\nRun ")
 EXPORT_NAME_RE = re.compile(r"[^\w가-힣 ._()-]+")
 CLASS_ORDER = ("public", "internal", "confidential")
 BUSINESS_TYPES: tuple[tuple[str, str], ...] = (
-    ("consulting", "컨설팅·자문"),
-    ("saas", "SaaS·IT 서비스"),
-    ("commerce", "이커머스·리테일"),
-    ("manufacturing", "제조·유통"),
-    ("finance", "금융·투자"),
-    ("public", "공공·조달"),
-    ("marketing", "마케팅·에이전시"),
-    ("healthcare", "의료·헬스케어"),
-    ("education", "교육"),
-    ("realestate", "부동산·건설"),
-    ("startup", "스타트업 일반"),
-    ("other", "기타"),
+    ("consulting", tr("컨설팅·자문")),
+    ("saas", tr("SaaS·IT 서비스")),
+    ("commerce", tr("이커머스·리테일")),
+    ("manufacturing", tr("제조·유통")),
+    ("finance", tr("금융·투자")),
+    ("public", tr("공공·조달")),
+    ("marketing", tr("마케팅·에이전시")),
+    ("healthcare", tr("의료·헬스케어")),
+    ("education", tr("교육")),
+    ("realestate", tr("부동산·건설")),
+    ("startup", tr("스타트업 일반")),
+    ("other", tr("기타")),
 )
 PROFILE_FIELDS: tuple[tuple[str, str], ...] = (
     ("industry", "Industry and niche"),
@@ -70,7 +79,7 @@ class WebPolicy(BaseModel):
     @model_validator(mode="after")
     def _exclusive(self) -> "WebPolicy":
         if self.allowed_domains and self.blocked_domains:
-            raise ValueError("allowed_domains와 blocked_domains는 동시에 쓸 수 없음")
+            raise ValueError(tr("allowed_domains와 blocked_domains는 동시에 쓸 수 없음"))
         return self
 
 
@@ -90,7 +99,7 @@ class BusinessProfile(BaseModel):
     @classmethod
     def _type(cls, value: str) -> str:
         if value and value not in dict(BUSINESS_TYPES):
-            raise ValueError(f"알 수 없는 비즈니스 유형: {value}")
+            raise ValueError(tr("알 수 없는 비즈니스 유형: {value}", value=value))
         return value
 
     @field_validator("industry", "offering", "customers", "competitors", "markets", "audience")
@@ -135,20 +144,20 @@ class WorkspaceConfig(BaseModel):
     def _actions(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         unknown = [a for a in value if a not in ACTION_TYPES]
         if unknown:
-            raise ValueError(f"알 수 없는 행동 유형: {', '.join(unknown)}")
+            raise ValueError(tr("알 수 없는 행동 유형: {types}", types=", ".join(unknown)))
         return tuple(dict.fromkeys(value))
 
     @field_validator("name")
     @classmethod
     def _name(cls, value: str) -> str:
         if not NAME_RE.fullmatch(value):
-            raise ValueError("작업 영역 이름은 소문자, 숫자, -, _ 만 쓸 수 있음 (최대 48자)")
+            raise ValueError(tr("작업 영역 이름은 소문자, 숫자, -, _ 만 쓸 수 있음 (최대 48자)"))
         return value
 
     @model_validator(mode="after")
     def _confidential(self) -> "WorkspaceConfig":
         if self.max_send_classification == "confidential":
-            raise ValueError("confidential 등급은 기본 전송 허용 대상으로 둘 수 없음, 실행 시 명시적으로 허용해야 함")
+            raise ValueError(tr("confidential 등급은 기본 전송 허용 대상으로 둘 수 없음, 실행 시 명시적으로 허용해야 함"))
         return self
 
 
@@ -219,7 +228,7 @@ class Workspace:
         base = workspaces_root()
         root = confine(base, config.name)
         if root.exists():
-            raise WorkspaceError(f"이미 존재하는 작업 영역: {config.name}")
+            raise WorkspaceError(tr("이미 존재하는 작업 영역: {name}", name=config.name))
         ensure_private_dir(root)
         for sub in ("inputs", "outputs", "runs"):
             ensure_private_dir(root / sub)
@@ -230,28 +239,28 @@ class Workspace:
     @classmethod
     def open(cls, name: str) -> "Workspace":
         if not NAME_RE.fullmatch(name):
-            raise WorkspaceError(f"올바르지 않은 작업 영역 이름: {name}")
+            raise WorkspaceError(tr("올바르지 않은 작업 영역 이름: {name}", name=name))
         root = confine(workspaces_root(), name)
         if not root.is_dir():
-            raise WorkspaceError(f"작업 영역이 없음: {name}")
+            raise WorkspaceError(tr("작업 영역이 없음: {name}", name=name))
         ensure_private_dir(root)
         try:
             raw = read_bytes_nofollow(root / "workspace.toml", 64 * 1024).decode("utf-8")
             config = WorkspaceConfig.model_validate(tomllib.loads(raw))
         except (tomllib.TOMLDecodeError, ValidationError, UnicodeDecodeError) as exc:
-            raise WorkspaceError(f"workspace.toml 오류: {exc}") from None
+            raise WorkspaceError(tr("workspace.toml 오류: {error}", error=exc)) from None
         if config.name != name:
-            raise WorkspaceError("workspace.toml의 name이 폴더 이름과 다름")
+            raise WorkspaceError(tr("workspace.toml의 name이 폴더 이름과 다름"))
         return cls(root, config)
 
     @staticmethod
     def list_names() -> list[str]:
         base = workspaces_root()
-        return sorted(p.name for p in base.iterdir() if p.is_dir() and not p.is_symlink() and NAME_RE.fullmatch(p.name))
+        return sorted(p.name for p in base.iterdir() if p.is_dir() and not hostos.is_link(p) and NAME_RE.fullmatch(p.name))
 
     def save_config(self, config: WorkspaceConfig) -> None:
         if config.name != self.name:
-            raise WorkspaceError("작업 영역 이름은 바꿀 수 없음")
+            raise WorkspaceError(tr("작업 영역 이름은 바꿀 수 없음"))
         write_private_text(self.root / "workspace.toml", render_workspace_toml(config))
         self.config = config
 
@@ -271,15 +280,19 @@ class Workspace:
 
     def import_file(self, source: Path, classification: str, name: str | None = None) -> InputFile:
         if not scope_allows_inputs(self.config.scope):
-            raise WorkspaceError(f"이 작업 영역의 활동 범위({self.config.scope})는 로컬 자료를 다루지 않음")
+            raise WorkspaceError(tr("이 작업 영역의 활동 범위({scope})는 로컬 자료를 다루지 않음", scope=self.config.scope))
         src = source.expanduser()
-        if src.is_symlink() or not src.is_file():
-            raise WorkspaceError(f"일반 파일만 가져올 수 있음: {source}")
+        if hostos.is_link(src) or not src.is_file():
+            raise WorkspaceError(tr("일반 파일만 가져올 수 있음: {path}", path=source))
         if src.suffix.lower() not in TEXT_EXTENSIONS:
-            raise WorkspaceError(f"지원하지 않는 형식: {src.suffix} (지원: {', '.join(sorted(TEXT_EXTENSIONS))})")
+            raise WorkspaceError(tr("지원하지 않는 형식: {suffix} (지원: {supported})", suffix=src.suffix,
+                                    supported=", ".join(sorted(TEXT_EXTENSIONS))))
         target_name = name or src.name
         if not FILE_RE.fullmatch(target_name) or target_name == "manifest.json":
-            raise WorkspaceError(f"사용할 수 없는 파일 이름: {target_name}")
+            raise WorkspaceError(tr("사용할 수 없는 파일 이름: {name}", name=target_name))
+        problem = portable_name_problem(target_name)
+        if problem:
+            raise WorkspaceError(tr("사용할 수 없는 파일 이름: {name}", name=problem))
         raw = read_bytes_nofollow(src, MAX_INPUT_BYTES)
         encoding = "utf-8"
         try:
@@ -289,9 +302,9 @@ class Workspace:
                 text = raw.decode("cp949")
                 encoding = "cp949"
             except UnicodeDecodeError:
-                raise WorkspaceError("UTF-8 또는 CP949 텍스트만 지원함") from None
+                raise WorkspaceError(tr("UTF-8 또는 CP949 텍스트만 지원함")) from None
         if "\x00" in text:
-            raise WorkspaceError("바이너리 파일은 가져올 수 없음")
+            raise WorkspaceError(tr("바이너리 파일은 가져올 수 없음"))
         return self._store_input(target_name, text, classification, encoding)
 
     def _store_input(self, target_name: str, text: str, classification: str, encoding: str) -> InputFile:
@@ -313,20 +326,20 @@ class Workspace:
 
     def import_run_report(self, source: "Workspace", run_id: str, classification: str) -> InputFile:
         if not scope_allows_inputs(self.config.scope):
-            raise WorkspaceError(f"이 작업 영역의 활동 범위({self.config.scope})는 로컬 자료를 다루지 않음")
+            raise WorkspaceError(tr("이 작업 영역의 활동 범위({scope})는 로컬 자료를 다루지 않음", scope=self.config.scope))
         if source.name == self.name:
-            raise WorkspaceError("같은 작업 영역의 기록은 '이어서 작업'으로 활용하면 됨")
+            raise WorkspaceError(tr("같은 작업 영역의 기록은 '이어서 작업'으로 활용하면 됨"))
         record = source.load_run(run_id)
         report = source.read_report(run_id)
         if record is None or not report:
-            raise WorkspaceError(f"보고서가 있는 실행 기록이 아님: {source.name}/{run_id}")
+            raise WorkspaceError(tr("보고서가 있는 실행 기록이 아님: {run}", run=f"{source.name}/{run_id}"))
         floor = report_classification(record)
         if CLASS_ORDER.index(classification) < CLASS_ORDER.index(floor):
-            raise WorkspaceError(f"이 보고서는 {floor} 이상 등급으로만 가져올 수 있음")
-        body = report.rsplit(REPORT_FOOTER, 1)[0].strip()
+            raise WorkspaceError(tr("이 보고서는 {floor} 이상 등급으로만 가져올 수 있음", floor=floor))
+        body = strip_report_footer(report)
         goal = " ".join(str(record.get("goal", "")).split())[:200]
-        header = (f"> 출처: 작업 영역 {source.name}, 실행 {run_id} ({str(record.get('created', ''))[:10]})\n"
-                  f"> 목표: {goal}\n\n")
+        header = tr("> 출처: 작업 영역 {workspace}, 실행 {run} ({day})\n> 목표: {goal}\n\n", workspace=source.name,
+                    run=run_id, day=str(record.get("created", ""))[:10], goal=goal)
         return self._store_input(f"{source.name}-{run_id}.md", header + body + "\n", classification, "utf-8")
 
     def remove_input(self, name: str) -> bool:
@@ -342,19 +355,19 @@ class Workspace:
         target = confine(self.root, "inputs", entry.name)
         text = read_bytes_nofollow(target, MAX_INPUT_BYTES).decode("utf-8")
         if hashlib.sha256(text.encode("utf-8")).hexdigest() != entry.sha256:
-            raise WorkspaceError(f"입력 파일 무결성 검증 실패(가져온 뒤 변경됨): {entry.name}")
+            raise WorkspaceError(tr("입력 파일 무결성 검증 실패(가져온 뒤 변경됨): {name}", name=entry.name))
         return text
 
     def output_dir(self, run_id: str) -> Path:
         if not RUN_ID_RE.fullmatch(run_id):
-            raise WorkspaceError("올바르지 않은 실행 ID")
+            raise WorkspaceError(tr("올바르지 않은 실행 ID"))
         out = ensure_private_dir(confine(self.root, "outputs", run_id))
         ensure_private_dir(out / "tasks")
         return out
 
     def save_run(self, run_id: str, record: dict) -> Path:
         if not RUN_ID_RE.fullmatch(run_id):
-            raise WorkspaceError("올바르지 않은 실행 ID")
+            raise WorkspaceError(tr("올바르지 않은 실행 ID"))
         path = confine(self.root, "runs", f"{run_id}.json")
         write_private_text(path, json.dumps(record, ensure_ascii=False, indent=2, default=str))
         return path
@@ -380,15 +393,15 @@ class Workspace:
     @classmethod
     def delete(cls, name: str) -> None:
         if not NAME_RE.fullmatch(name):
-            raise WorkspaceError(f"올바르지 않은 작업 영역 이름: {name}")
+            raise WorkspaceError(tr("올바르지 않은 작업 영역 이름: {name}", name=name))
         root = confine(workspaces_root(), name)
         if not root.is_dir():
-            raise WorkspaceError(f"작업 영역이 없음: {name}")
+            raise WorkspaceError(tr("작업 영역이 없음: {name}", name=name))
         _remove_tree(root)
 
     def delete_run(self, run_id: str) -> bool:
         if not RUN_ID_RE.fullmatch(run_id):
-            raise WorkspaceError("올바르지 않은 실행 ID")
+            raise WorkspaceError(tr("올바르지 않은 실행 ID"))
         removed = False
         out = confine(self.root, "outputs", run_id)
         if out.exists():
@@ -412,7 +425,7 @@ class Workspace:
     def write_brief(self, text: str) -> int:
         text = text.strip()
         if len(text) > MAX_BRIEF_CHARS:
-            raise WorkspaceError(f"지침은 {MAX_BRIEF_CHARS:,}자 이하여야 함")
+            raise WorkspaceError(tr("지침은 {limit:,}자 이하여야 함", limit=MAX_BRIEF_CHARS))
         path = confine(self.root, "brief.md")
         if not text:
             if path.exists():
@@ -444,7 +457,7 @@ class Workspace:
             return []
         folder = confine(self.root, "outputs", run_id)
         tasks_dir = folder / "tasks"
-        if not tasks_dir.is_dir() or tasks_dir.is_symlink():
+        if not tasks_dir.is_dir() or hostos.is_link(tasks_dir):
             return []
         ids = sorted(
             (p.stem for p in tasks_dir.glob("t*.md") if re.fullmatch(r"t\d{1,2}", p.stem)),
@@ -466,6 +479,11 @@ class Workspace:
         return read_bytes_nofollow(path, 4 * 1024 * 1024).decode("utf-8")
 
 
+def strip_report_footer(report: str) -> str:
+    cut = max(report.rfind(marker) for marker in REPORT_FOOTERS)
+    return (report[:cut] if cut >= 0 else report).strip()
+
+
 def report_classification(record: dict) -> str:
     return "confidential" if record.get("allow_confidential") else "internal"
 
@@ -480,22 +498,24 @@ def export_file_name(record: dict) -> str:
 
 def check_export_dir(raw: str) -> Path:
     if not raw.strip() or "\x00" in raw:
-        raise WorkspaceError("복사할 폴더를 입력해야 함")
+        raise WorkspaceError(tr("복사할 폴더를 입력해야 함"))
     folder = Path(os.path.expanduser(raw.strip()))
     if not folder.is_absolute():
-        raise WorkspaceError("폴더는 ~/ 또는 / 로 시작하는 절대 경로여야 함")
+        if os.sep == "\\":
+            raise WorkspaceError(tr("폴더는 ~\\ 또는 C:\\ 처럼 시작하는 절대 경로여야 함"))
+        raise WorkspaceError(tr("폴더는 ~/ 또는 / 로 시작하는 절대 경로여야 함"))
     try:
         st = folder.lstat()
     except FileNotFoundError:
-        raise WorkspaceError(f"폴더가 없음: {raw}") from None
-    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
-        raise WorkspaceError("심볼릭 링크가 아닌 실제 폴더만 고를 수 있음")
-    if st.st_uid != os.getuid():
-        raise WorkspaceError("현재 사용자 소유 폴더에만 복사할 수 있음")
+        raise WorkspaceError(tr("폴더가 없음: {path}", path=raw)) from None
+    if hostos.stat_is_link(st) or not stat.S_ISDIR(st.st_mode):
+        raise WorkspaceError(tr("심볼릭 링크가 아닌 실제 폴더만 고를 수 있음"))
+    if not hostos.owned_by_me(folder, st):
+        raise WorkspaceError(tr("현재 사용자 소유 폴더에만 복사할 수 있음"))
     resolved = folder.resolve(strict=True)
     data = home_path().expanduser().resolve()
     if resolved == data or resolved.is_relative_to(data):
-        raise WorkspaceError("claubiz 데이터 폴더 안으로는 복사할 수 없음")
+        raise WorkspaceError(tr("claubiz 데이터 폴더 안으로는 복사할 수 없음"))
     return resolved
 
 
@@ -503,7 +523,7 @@ def export_report(ws: Workspace, run_id: str, raw_dir: str) -> tuple[Path, str]:
     record = ws.load_run(run_id)
     report = ws.read_report(run_id)
     if record is None or not report:
-        raise WorkspaceError("이 실행에는 복사할 보고서가 없음")
+        raise WorkspaceError(tr("이 실행에는 복사할 보고서가 없음"))
     folder = check_export_dir(raw_dir)
     data = report.encode("utf-8")
     stem = export_file_name(record)
@@ -511,7 +531,7 @@ def export_report(ws: Workspace, run_id: str, raw_dir: str) -> tuple[Path, str]:
         name = f"{stem}.md" if attempt == 1 else f"{stem} ({attempt}).md"
         target = folder / name
         try:
-            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            fd = hostos.open_fd(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:
             continue
         try:
@@ -523,12 +543,13 @@ def export_report(ws: Workspace, run_id: str, raw_dir: str) -> tuple[Path, str]:
             target.unlink(missing_ok=True)
             raise
         return target, hashlib.sha256(data).hexdigest()
-    raise WorkspaceError("같은 이름의 파일이 너무 많아 복사하지 못함")
+    raise WorkspaceError(tr("같은 이름의 파일이 너무 많아 복사하지 못함"))
 
 
 def _remove_tree(path: Path) -> None:
-    if path.is_symlink() or not path.is_dir():
-        raise WorkspaceError(f"삭제 대상이 디렉터리가 아님: {path.name}")
-    if not shutil.rmtree.avoids_symlink_attacks:
-        raise WorkspaceError("이 플랫폼에서는 안전한 디렉터리 삭제를 지원하지 않음")
-    shutil.rmtree(path)
+    if hostos.is_link(path) or not path.is_dir():
+        raise WorkspaceError(tr("삭제 대상이 디렉터리가 아님: {name}", name=path.name))
+    try:
+        hostos.remove_tree(path)
+    except hostos.HostError as exc:
+        raise WorkspaceError(str(exc)) from None

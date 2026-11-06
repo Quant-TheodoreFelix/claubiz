@@ -2,6 +2,8 @@ import ipaddress
 import re
 from typing import Literal
 
+from .i18n import tr
+
 Classification = Literal["public", "internal", "confidential"]
 Scope = Literal["research", "inputs-only", "web-only"]
 
@@ -38,20 +40,20 @@ def validate_domains(domains: list[str] | tuple[str, ...]) -> tuple[str, ...]:
         if not host:
             continue
         if "://" in host or "/" in host or ":" in host or "@" in host:
-            raise PolicyError(f"도메인에는 호스트 이름만 쓸 수 있음: {raw}")
+            raise PolicyError(tr("도메인에는 호스트 이름만 쓸 수 있음: {value}", value=raw))
         try:
             ipaddress.ip_address(host)
-            raise PolicyError(f"IP 주소는 허용되지 않음: {raw}")
+            raise PolicyError(tr("IP 주소는 허용되지 않음: {value}", value=raw))
         except ValueError:
             pass
         if host in BLOCKED_HOSTS or host.endswith((".local", ".localhost", ".internal", ".home.arpa")):
-            raise PolicyError(f"내부망 도메인은 허용되지 않음: {raw}")
+            raise PolicyError(tr("내부망 도메인은 허용되지 않음: {value}", value=raw))
         if not HOST_RE.fullmatch(host):
-            raise PolicyError(f"올바른 도메인이 아님: {raw}")
+            raise PolicyError(tr("올바른 도메인이 아님: {value}", value=raw))
         if host not in cleaned:
             cleaned.append(host)
     if len(cleaned) > 64:
-        raise PolicyError("도메인 목록은 최대 64개까지 가능")
+        raise PolicyError(tr("도메인 목록은 최대 64개까지 가능"))
     return tuple(cleaned)
 
 
@@ -82,13 +84,13 @@ def redact_pii(text: str) -> tuple[str, dict[str, int]]:
             if check is not None and not check(match.group(0)):
                 return match.group(0)
             counts[label] = counts.get(label, 0) + 1
-            return f"[{label} 가림]"
+            return tr("[{label} 가림]", label=label)
 
         return pattern.sub(repl, value)
 
-    out = sub(RRN_RE, "주민등록번호", text)
-    out = sub(CARD_RE, "카드번호", out, lambda s: _luhn_ok(re.sub(r"\D", "", s)))
-    out = sub(MOBILE_RE, "전화번호", out)
-    out = sub(LANDLINE_RE, "전화번호", out)
-    out = sub(EMAIL_RE, "이메일", out)
+    out = sub(RRN_RE, tr("주민등록번호"), text)
+    out = sub(CARD_RE, tr("카드번호"), out, lambda s: _luhn_ok(re.sub(r"\D", "", s)))
+    out = sub(MOBILE_RE, tr("전화번호"), out)
+    out = sub(LANDLINE_RE, tr("전화번호"), out)
+    out = sub(EMAIL_RE, tr("이메일"), out)
     return out, counts

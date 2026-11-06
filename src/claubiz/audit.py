@@ -1,4 +1,3 @@
-import fcntl
 import hashlib
 import json
 import os
@@ -6,6 +5,8 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import hostos
+from .i18n import tr
 from .paths import home
 from .secrets import redact
 
@@ -46,9 +47,9 @@ class AuditLog:
 
     def append(self, event: str, **data) -> str:
         with self._lock:
-            fd = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+            fd = hostos.open_fd(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX)
+                hostos.lock(fd)
                 last = _last_line(fd)
                 if last:
                     prev_record = json.loads(last)
@@ -68,12 +69,12 @@ class AuditLog:
                 os.fsync(fd)
                 return digest
             finally:
-                fcntl.flock(fd, fcntl.LOCK_UN)
+                hostos.unlock(fd)
                 os.close(fd)
 
     def verify(self) -> tuple[bool, int, str]:
         if not self.path.exists():
-            return True, 0, "감사 로그 없음"
+            return True, 0, tr("감사 로그 없음")
         prev = GENESIS
         count = 0
         with open(self.path, "rb") as fh:
@@ -81,14 +82,14 @@ class AuditLog:
                 try:
                     record = json.loads(raw)
                 except json.JSONDecodeError:
-                    return False, count, f"{lineno}행 JSON 손상"
+                    return False, count, tr("{line}행 JSON 손상", line=lineno)
                 body = {k: record[k] for k in ("seq", "ts", "event", "data")}
                 if record.get("prev") != prev:
-                    return False, count, f"{lineno}행 체인 연결 불일치"
+                    return False, count, tr("{line}행 체인 연결 불일치", line=lineno)
                 if record.get("seq") != count:
-                    return False, count, f"{lineno}행 순번 불일치"
+                    return False, count, tr("{line}행 순번 불일치", line=lineno)
                 if _digest(prev, _canonical(body)) != record.get("hash"):
-                    return False, count, f"{lineno}행 해시 불일치(변조 의심)"
+                    return False, count, tr("{line}행 해시 불일치(변조 의심)", line=lineno)
                 prev = record["hash"]
                 count += 1
-        return True, count, "정상"
+        return True, count, tr("정상")

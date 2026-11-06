@@ -12,14 +12,28 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "scripts" / "install.sh.in"
+PS_TEMPLATE = ROOT / "scripts" / "install.ps1.in"
 LOCK = ROOT / "requirements.lock"
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost"})
 URL_CHARS = re.compile(r"[A-Za-z0-9._~:/%-]+")
 WHEEL_NAME = re.compile(r"claubiz-(\d+\.\d+\.\d+)-py3-none-any\.whl")
 PLACEHOLDER = re.compile(r"@[A-Z0-9_]+@")
-REQUIRED_ENTRIES = ("claubiz/__init__.py", "claubiz/cli.py", "claubiz/tui/app.py", "claubiz/tui/app.tcss")
+REQUIRED_ENTRIES = (
+    "claubiz/__init__.py",
+    "claubiz/cli.py",
+    "claubiz/tui/app.py",
+    "claubiz/tui/app.tcss",
+    "claubiz/locales/en.json",
+)
 FORBIDDEN_PARTS = ("__pycache__", ".DS_Store", ".pyc")
-TEXT_PATHS = ("/install.sh", "/SHA256SUMS", "/releases/:release/install.sh", "/releases/:release/requirements.lock")
+TEXT_PATHS = (
+    "/install.sh",
+    "/install.ps1",
+    "/SHA256SUMS",
+    "/releases/:release/install.sh",
+    "/releases/:release/install.ps1",
+    "/releases/:release/requirements.lock",
+)
 SITE_HEADERS = (
     "X-Content-Type-Options: nosniff",
     "Referrer-Policy: no-referrer",
@@ -133,7 +147,7 @@ def pages_headers() -> str:
 
 
 def write_text(path: Path, text: str, mode: int) -> None:
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
     path.chmod(mode)
 
 
@@ -151,28 +165,33 @@ def build_release(base_url: str, out: Path, offline: bool = True) -> dict[str, s
         place_immutable(wheel, release_dir / wheel.name)
         place_immutable(LOCK, release_dir / "requirements.lock")
         wheel_name = wheel.name
-    installer = render_installer(TEMPLATE.read_text(encoding="utf-8"), {
+    values = {
         "VERSION": version,
         "RELEASE": release,
         "BASE_URL": base_url,
         "WHEEL": wheel_name,
         "WHEEL_SHA256": wheel_sha,
         "LOCK_SHA256": lock_sha,
-    })
-    write_text(release_dir / "install.sh", installer, 0o644)
-    write_text(out / "install.sh", installer, 0o644)
+    }
+    for template, name in ((TEMPLATE, "install.sh"), (PS_TEMPLATE, "install.ps1")):
+        installer = render_installer(template.read_text(encoding="utf-8"), values)
+        write_text(release_dir / name, installer, 0o644)
+        write_text(out / name, installer, 0o644)
     write_text(out / "_headers", pages_headers(), 0o644)
     for path in (release_dir / wheel_name, release_dir / "requirements.lock"):
         path.chmod(0o644)
-    listed = [out / "install.sh", release_dir / "install.sh", release_dir / wheel_name,
-              release_dir / "requirements.lock"]
+    listed = [out / "install.sh", out / "install.ps1", release_dir / "install.sh", release_dir / "install.ps1",
+              release_dir / wheel_name, release_dir / "requirements.lock"]
     sums = "".join(f"{sha256(path)}  {path.relative_to(out).as_posix()}\n" for path in listed)
     write_text(out / "SHA256SUMS", sums, 0o644)
     return {"version": version, "release": release, "installer_sha256": sha256(out / "install.sh"),
-            "base_url": base_url, "out": str(out)}
+            "ps_installer_sha256": sha256(out / "install.ps1"), "base_url": base_url, "out": str(out)}
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if (stream.encoding or "").lower().replace("-", "") != "utf8" and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="claubiz 설치 스크립트와 배포 묶음 생성")
     parser.add_argument("--base-url", required=True, help="배포 묶음을 올릴 https 주소 (예: https://get.example.com)")
     parser.add_argument("--out", default=str(ROOT / "dist" / "site"), help="출력 폴더 (기본 dist/site)")
@@ -190,13 +209,20 @@ def main(argv: list[str] | None = None) -> int:
     print(f"배포 ID       {info['release']}")
     print(f"출력 폴더     {info['out']}")
     print(f"install.sh    sha256 {info['installer_sha256']}")
+    print(f"install.ps1   sha256 {info['ps_installer_sha256']}")
     print()
-    print("설치 명령")
+    print("설치 명령 (macOS, Linux)")
     print(f"  curl -fsSL {base}/install.sh | sh")
+    print("설치 명령 (Windows PowerShell)")
+    print(f"  irm {base}/install.ps1 | iex")
     print()
-    print("검증 후 설치")
+    print("검증 후 설치 (macOS, Linux)")
     print(f"  curl -fsSLO {base}/install.sh")
     print(f"  echo '{info['installer_sha256']}  install.sh' | shasum -a 256 -c - && sh install.sh")
+    print("검증 후 설치 (Windows PowerShell)")
+    print(f"  irm {base}/install.ps1 -OutFile install.ps1")
+    print(f"  if ((Get-FileHash install.ps1).Hash -eq '{info['ps_installer_sha256']}') "
+          "{ & ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 .\\install.ps1))) }")
     return 0
 
 

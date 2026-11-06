@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from support import assert_private
 from test_orchestrator import FakeLLM, _setup
 
 from claubiz.audit import AuditLog
@@ -29,7 +30,7 @@ def test_home_path_resolution(monkeypatch, tmp_path):
     assert home_path() == Path.home() / ".claubiz"
     monkeypatch.setenv("CLAUBIZ_HOME", str(tmp_path / "data"))
     assert home() == tmp_path / "data"
-    assert (tmp_path / "data").stat().st_mode & 0o777 == 0o700
+    assert_private(tmp_path / "data", 0o700)
     monkeypatch.setenv("CLAUBIZ_HOME", "relative/dir")
     with pytest.raises(UnsafePathError):
         home_path()
@@ -85,7 +86,7 @@ def test_custom_playbooks():
     assert playbook.builtin is False
     assert get_playbook("partner-scan").title == "협력사 발굴"
     assert set(BUILTIN_PLAYBOOKS) < set(all_playbooks())
-    assert (playbooks_dir() / "partner-scan.toml").stat().st_mode & 0o777 == 0o600
+    assert_private(playbooks_dir() / "partner-scan.toml", 0o600)
     with pytest.raises(PlaybookError):
         save_custom_playbook(_spec())
     with pytest.raises(PlaybookError):
@@ -180,3 +181,13 @@ async def test_generate_brief_records_cost_and_audit():
     assert "a@b.com" not in message and "<operator_notes>" in message
     ok, _, _ = runtime.audit.verify()
     assert ok
+
+
+def test_import_rejects_windows_reserved_names(tmp_path):
+    ws = Workspace.create(WorkspaceConfig(name="names"))
+    memo = tmp_path / "memo.md"
+    memo.write_text("메모", encoding="utf-8")
+    for bad in ("aux.md", "nul.txt", "report.md."):
+        with pytest.raises(WorkspaceError, match="사용할 수 없는 파일 이름"):
+            ws.import_file(memo, "internal", name=bad)
+    assert ws.import_file(memo, "internal", name="auxiliary.md").name == "auxiliary.md"

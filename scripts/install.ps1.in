@@ -1,0 +1,493 @@
+param(
+    [string]$Prefix = '',
+    [string]$Source = '',
+    [switch]$NoModifyPath,
+    [switch]$Uninstall,
+    [switch]$AllowElevated,
+    [switch]$Help
+)
+
+$ClaubizVersion = '@VERSION@'
+$ClaubizRelease = '@RELEASE@'
+$ClaubizSource = '@BASE_URL@'
+$ClaubizWheel = '@WHEEL@'
+$ClaubizWheelSha256 = '@WHEEL_SHA256@'
+$ClaubizLockSha256 = '@LOCK_SHA256@'
+$ClaubizPython = '3.12'
+$ClaubizUvMin = [version]'0.11.0'
+$ClaubizUvVersion = '0.13.1'
+$ClaubizUvHashes = @{
+    'x86_64-pc-windows-msvc' = '3b2661a463a5baea7f5076ea2b25ab71d77f36a6c0d809e5350651792f80a672'
+    'aarch64-pc-windows-msvc' = 'ec7846a5939b4654afee24f2d82bf6fde71bd7a6952d7748f1135ab301dd0a49'
+}
+$ClaubizMarker = '.claubiz-install'
+$ClaubizTask = '\claubiz\digest'
+$ClaubizIsolatedVars = @(
+    'VIRTUAL_ENV', 'CONDA_PREFIX', 'PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP', 'UV_PYTHON', 'UV_SYSTEM_PYTHON',
+    'UV_NO_MANAGED_PYTHON', 'UV_PYTHON_PREFERENCE', 'UV_VENV_SEED', 'UV_PYTHON_INSTALL_DIR', 'UV_PYTHON_BIN_DIR',
+    'UV_CACHE_DIR', 'UV_PYTHON_INSTALL_REGISTRY', 'UV_INDEX_URL', 'UV_EXTRA_INDEX_URL', 'UV_CONFIG_FILE', 'CLAUBIZ_HOME'
+)
+
+function Stop-ClaubizInstall([string]$Message) {
+    throw "claubiz 설치 중단: $Message"
+}
+
+function Write-ClaubizUsage {
+    Write-Host @"
+claubiz $ClaubizVersion 설치 ($ClaubizRelease)
+
+사용법
+  irm $ClaubizSource/install.ps1 | iex
+  & ([scriptblock]::Create((irm $ClaubizSource/install.ps1))) [옵션]
+
+옵션
+  -Prefix <폴더>     프로그램 설치 위치 (기본 %LOCALAPPDATA%\Programs\claubiz)
+  -Source <주소>     배포 묶음 주소나 로컬 폴더 (기본 $ClaubizSource)
+  -NoModifyPath      사용자 PATH에 claubiz를 추가하지 않음
+  -Uninstall         프로그램만 제거 (데이터와 API 키는 남김)
+"@
+}
+
+function Get-ClaubizTarget {
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+        Stop-ClaubizInstall 'Windows 전용 스크립트임, macOS와 Linux는 install.sh 사용'
+    }
+    $build = [Environment]::OSVersion.Version.Build
+    if ($build -lt 19045) {
+        Stop-ClaubizInstall "Windows 10 22H2(빌드 19045) 이상이 필요함 (현재 빌드 $build)"
+    }
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+    $arch = [string](Get-ItemProperty -LiteralPath $key -Name PROCESSOR_ARCHITECTURE).PROCESSOR_ARCHITECTURE
+    switch ($arch.ToUpperInvariant()) {
+        'AMD64' { return 'x86_64-pc-windows-msvc' }
+        'ARM64' { return 'aarch64-pc-windows-msvc' }
+        default { Stop-ClaubizInstall "지원하지 않는 CPU 구조: $arch" }
+    }
+}
+
+function Test-ClaubizElevated {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Test-ClaubizLocalPath([string]$Value) {
+    return $Value -match '^[A-Za-z]:\\'
+}
+
+function Resolve-ClaubizSource([string]$Raw) {
+    if ($Raw -match '[@?#]') {
+        Stop-ClaubizInstall "배포 묶음 주소에 @, ?, # 은 쓸 수 없음: $Raw"
+    }
+    if ($Raw -match '^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~%/-]*)?$') {
+        return $Raw.TrimEnd('/')
+    }
+    if ($Raw -match '^http://(127\.0\.0\.1|localhost)(:[0-9]+)?(/[A-Za-z0-9._~%/-]*)?$') {
+        return $Raw.TrimEnd('/')
+    }
+    if (Test-ClaubizLocalPath $Raw) {
+        return $Raw.TrimEnd('\')
+    }
+    Stop-ClaubizInstall "허용되지 않는 배포 묶음 주소: $Raw"
+}
+
+function Get-ClaubizHttpReason([int]$Code) {
+    if ($Code -eq 404) { return '서버에 파일이 없음, 배포가 아직 반영되지 않았거나 install.ps1과 배포 묶음이 맞지 않음' }
+    if ($Code -eq 401 -or $Code -eq 403) { return '접근 거부, 회사 방화벽이나 보안 프록시 또는 배포 서버 보안 설정이 막았을 수 있음' }
+    if ($Code -eq 429) { return '요청이 너무 많음, 잠시 뒤 다시 실행' }
+    if ($Code -ge 500) { return '배포 서버 오류, 잠시 뒤 다시 실행' }
+    return '예상하지 못한 응답'
+}
+
+function New-ClaubizHttpClient {
+    Add-Type -AssemblyName System.Net.Http
+    $handler = New-Object System.Net.Http.HttpClientHandler
+    $handler.AllowAutoRedirect = $false
+    $client = New-Object System.Net.Http.HttpClient($handler)
+    $client.Timeout = [TimeSpan]::FromMinutes(10)
+    $client.DefaultRequestHeaders.UserAgent.ParseAdd("claubiz-installer/$ClaubizVersion")
+    return $client
+}
+
+function Invoke-ClaubizRequest($Client, [Uri]$Uri, [string]$Label) {
+    $failure = $null
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            $option = [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
+            $response = $Client.GetAsync($Uri, $option).GetAwaiter().GetResult()
+            $code = [int]$response.StatusCode
+            if (($code -ge 500 -or $code -eq 429 -or $code -eq 408) -and $attempt -lt 3) {
+                $response.Dispose()
+                Start-Sleep -Seconds (2 * $attempt)
+                continue
+            }
+            return $response
+        } catch {
+            $failure = $_.Exception
+            if ($attempt -lt 3) { Start-Sleep -Seconds (2 * $attempt) }
+        }
+    }
+    $inner = $failure
+    while ($null -ne $inner.InnerException) { $inner = $inner.InnerException }
+    Stop-ClaubizInstall ("내려받기 실패 (연결 오류 {0}), 방화벽이나 프록시 또는 HTTPS를 가로채는 보안 장비 확인: {1}" -f $inner.Message, $Label)
+}
+
+function Save-ClaubizRemote([string]$Url, [string]$Destination) {
+    if (Test-ClaubizLocalPath $Url) {
+        $item = Get-Item -LiteralPath $Url -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item -or $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            Stop-ClaubizInstall "일반 파일이 아님: $Url"
+        }
+        Copy-Item -LiteralPath $Url -Destination $Destination
+        return
+    }
+    $loopback = $Url -match '^http://'
+    $client = New-ClaubizHttpClient
+    try {
+        $current = [Uri]$Url
+        for ($hop = 0; $hop -le 5; $hop++) {
+            $response = Invoke-ClaubizRequest $client $current $Url
+            try {
+                $code = [int]$response.StatusCode
+                if ($code -ge 300 -and $code -lt 400 -and $null -ne $response.Headers.Location) {
+                    $next = $response.Headers.Location
+                    if (-not $next.IsAbsoluteUri) { $next = New-Object Uri($current, $next) }
+                    $sameLoopback = $loopback -and $next.Scheme -eq 'http' -and $next.Host -eq $current.Host
+                    if ($next.Scheme -ne 'https' -and -not $sameLoopback) {
+                        Stop-ClaubizInstall "https가 아닌 주소로 넘겨져 거부함, 보안 장비가 차단 페이지로 보냈을 수 있음: $Url"
+                    }
+                    $current = $next
+                    continue
+                }
+                if ($code -ne 200) {
+                    Stop-ClaubizInstall ("내려받기 실패 (HTTP {0}, {1}): {2}" -f $code, (Get-ClaubizHttpReason $code), $Url)
+                }
+                $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+                $file = [IO.File]::Open($Destination, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
+                try { $stream.CopyTo($file) } finally { $file.Dispose(); $stream.Dispose() }
+                return
+            } finally {
+                $response.Dispose()
+            }
+        }
+        Stop-ClaubizInstall "리디렉션이 너무 많음: $Url"
+    } finally {
+        $client.Dispose()
+    }
+}
+
+function Join-ClaubizSource([string]$Base, [string]$Name) {
+    if (Test-ClaubizLocalPath $Base) {
+        return Join-Path $Base ("releases\$ClaubizRelease\$Name")
+    }
+    return "$Base/releases/$ClaubizRelease/$Name"
+}
+
+function Assert-ClaubizHash([string]$Path, [string]$Expected) {
+    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+    if ($actual -ne $Expected) {
+        $name = Split-Path -Leaf $Path
+        Stop-ClaubizInstall "해시 불일치로 중단함, 파일이 변조되었거나 손상됨: $name (기대 $Expected, 실제 $actual)"
+    }
+}
+
+function Invoke-ClaubizQuiet([string]$File, [string[]]$Arguments) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $File @Arguments 2>&1 | Out-String
+    } finally {
+        $ErrorActionPreference = $saved
+    }
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Output = $output.Trim() }
+}
+
+function Find-ClaubizUv {
+    $command = Get-Command uv.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $command) { return $null }
+    $result = Invoke-ClaubizQuiet $command.Source @('--version')
+    if ($result.Code -ne 0 -or $result.Output -notmatch '^uv (\d+\.\d+\.\d+)') { return $null }
+    $found = $Matches[1]
+    if ([version]$found -lt $ClaubizUvMin) { return $null }
+    Write-Host "설치된 uv $found 사용: $($command.Source)"
+    return $command.Source
+}
+
+function Get-ClaubizUv([string]$Target, [string]$Temp) {
+    Write-Host "uv $ClaubizUvVersion 내려받는 중"
+    $archive = Join-Path $Temp 'uv.zip'
+    Save-ClaubizRemote "https://github.com/astral-sh/uv/releases/download/$ClaubizUvVersion/uv-$Target.zip" $archive
+    Assert-ClaubizHash $archive $ClaubizUvHashes[$Target]
+    $folder = Join-Path $Temp 'uv'
+    Expand-Archive -LiteralPath $archive -DestinationPath $folder
+    $exe = Get-ChildItem -LiteralPath $folder -Recurse -Filter 'uv.exe' | Select-Object -First 1
+    if ($null -eq $exe) { Stop-ClaubizInstall 'uv 압축 파일에 uv.exe가 없음' }
+    return $exe.FullName
+}
+
+function Save-ClaubizEnvironment {
+    $saved = @{}
+    foreach ($name in $ClaubizIsolatedVars) {
+        $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+    }
+    return $saved
+}
+
+function Clear-ClaubizVariable([string]$Name) {
+    Remove-Item -LiteralPath "Env:\$Name" -ErrorAction SilentlyContinue
+}
+
+function Restore-ClaubizEnvironment($Saved) {
+    foreach ($name in $Saved.Keys) {
+        if ($null -eq $Saved[$name]) {
+            Clear-ClaubizVariable $name
+        } else {
+            Set-Item -LiteralPath "Env:\$name" -Value $Saved[$name]
+        }
+    }
+}
+
+function Set-ClaubizUvEnvironment([string]$PrefixPath, [string]$Temp) {
+    foreach ($name in $ClaubizIsolatedVars) {
+        Clear-ClaubizVariable $name
+    }
+    $env:UV_PYTHON_INSTALL_DIR = Join-Path $PrefixPath 'python'
+    $env:UV_PYTHON_BIN_DIR = Join-Path $Temp 'python-bin'
+    $env:UV_CACHE_DIR = Join-Path $Temp 'cache'
+    $env:UV_PYTHON_INSTALL_REGISTRY = '0'
+}
+
+function Invoke-ClaubizUv([string]$Uv, [string[]]$Arguments) {
+    $result = Invoke-ClaubizQuiet $Uv $Arguments
+    if ($result.Code -ne 0) {
+        Stop-ClaubizInstall "uv 실행 실패 (종료 코드 $($result.Code)): $($result.Output)"
+    }
+}
+
+function Test-ClaubizCommand([string]$Exe, [string]$Temp) {
+    $env:CLAUBIZ_HOME = Join-Path $Temp 'home'
+    try {
+        $result = Invoke-ClaubizQuiet $Exe @('--version')
+    } finally {
+        Clear-ClaubizVariable 'CLAUBIZ_HOME'
+    }
+    if ($result.Code -ne 0 -or $result.Output -ne "claubiz $ClaubizVersion") {
+        Stop-ClaubizInstall "설치 확인 실패: $($result.Output)"
+    }
+}
+
+function Test-ClaubizPrefix([string]$PrefixPath) {
+    if (-not (Test-Path -LiteralPath $PrefixPath)) { return }
+    $item = Get-Item -LiteralPath $PrefixPath -Force
+    if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        Stop-ClaubizInstall "설치 폴더 자리에 일반 폴더가 아닌 항목이 있음: $PrefixPath"
+    }
+    if (Test-Path -LiteralPath (Join-Path $PrefixPath $ClaubizMarker)) { return }
+    if (@(Get-ChildItem -LiteralPath $PrefixPath -Force).Count -gt 0) {
+        Stop-ClaubizInstall "claubiz가 만든 폴더가 아니라서 덮어쓰지 않음: $PrefixPath"
+    }
+}
+
+function Initialize-ClaubizPrefix([string]$PrefixPath) {
+    if (-not (Test-Path -LiteralPath $PrefixPath)) {
+        New-Item -ItemType Directory -Path $PrefixPath | Out-Null
+    }
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $icacls = Join-Path ([Environment]::SystemDirectory) 'icacls.exe'
+    $result = Invoke-ClaubizQuiet $icacls @($PrefixPath, '/inheritance:r', '/grant:r', "*${sid}:(OI)(CI)F",
+        '/grant:r', '*S-1-5-18:(OI)(CI)F')
+    if ($result.Code -ne 0) { Stop-ClaubizInstall "설치 폴더 권한 설정 실패: $($result.Output)" }
+    [IO.File]::WriteAllText((Join-Path $PrefixPath $ClaubizMarker), "claubiz $ClaubizVersion`n")
+}
+
+function Install-ClaubizVenv([string]$Uv, [string]$PrefixPath, [string]$Temp) {
+    $venv = Join-Path $PrefixPath 'venv'
+    $old = Join-Path $PrefixPath 'venv.old'
+    if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force }
+    if (Test-Path -LiteralPath $venv) {
+        try {
+            Rename-Item -LiteralPath $venv -NewName 'venv.old'
+        } catch {
+            Stop-ClaubizInstall '실행 중인 claubiz가 있어 교체할 수 없음, TUI와 정기 정리(작업 스케줄러)가 끝난 뒤 다시 실행'
+        }
+    }
+    try {
+        Write-Host "Python $ClaubizPython 실행 환경 만드는 중"
+        Invoke-ClaubizUv $Uv @('venv', '--quiet', '--no-config', '--managed-python', '--python', $ClaubizPython, $venv)
+        $python = Join-Path $venv 'Scripts\python.exe'
+        Write-Host '의존성 설치 중 (requirements.lock 해시 검증)'
+        Invoke-ClaubizUv $Uv @('pip', 'install', '--quiet', '--no-config', '--python', $python, '--require-hashes',
+            '--only-binary', ':all:', '-r', (Join-Path $Temp 'requirements.lock'))
+        Invoke-ClaubizUv $Uv @('pip', 'install', '--quiet', '--no-config', '--python', $python, '--no-deps',
+            '--no-index', (Join-Path $Temp $ClaubizWheel))
+        Test-ClaubizCommand (Join-Path $venv 'Scripts\claubiz.exe') $Temp
+    } catch {
+        if (Test-Path -LiteralPath $venv) { Remove-Item -LiteralPath $venv -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $old) { Rename-Item -LiteralPath $old -NewName 'venv' }
+        throw
+    }
+    if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+function Install-ClaubizBin([string]$PrefixPath) {
+    $bin = Join-Path $PrefixPath 'bin'
+    if (-not (Test-Path -LiteralPath $bin)) { New-Item -ItemType Directory -Path $bin | Out-Null }
+    $target = Join-Path $bin 'claubiz.exe'
+    $stale = Join-Path $bin 'claubiz.exe.old'
+    if (Test-Path -LiteralPath $stale) { Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $target) { Move-Item -LiteralPath $target -Destination $stale -Force }
+    Copy-Item -LiteralPath (Join-Path $PrefixPath 'venv\Scripts\claubiz.exe') -Destination $target
+    if (Test-Path -LiteralPath $stale) { Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue }
+    return $bin
+}
+
+function Send-ClaubizEnvironmentChange {
+    [Environment]::SetEnvironmentVariable('CLAUBIZ_INSTALL_REFRESH', '1', 'User')
+    [Environment]::SetEnvironmentVariable('CLAUBIZ_INSTALL_REFRESH', $null, 'User')
+}
+
+function Get-ClaubizUserPath($Key) {
+    $raw = [string]$Key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    return @($raw -split ';' | Where-Object { $_ -ne '' })
+}
+
+function Add-ClaubizUserPath([string]$Bin) {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+    try {
+        $parts = Get-ClaubizUserPath $key
+        if (@($parts | Where-Object { $_.TrimEnd('\') -ieq $Bin.TrimEnd('\') }).Count -gt 0) { return $false }
+        $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+        if ($null -ne $key.GetValue('Path')) { $kind = $key.GetValueKind('Path') }
+        $key.SetValue('Path', ((@($parts) + $Bin) -join ';'), $kind)
+    } finally {
+        $key.Dispose()
+    }
+    Send-ClaubizEnvironmentChange
+    return $true
+}
+
+function Remove-ClaubizUserPath([string]$Bin) {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+    try {
+        if ($null -eq $key.GetValue('Path')) { return }
+        $parts = Get-ClaubizUserPath $key
+        $kept = @($parts | Where-Object { $_.TrimEnd('\') -ine $Bin.TrimEnd('\') })
+        if ($kept.Count -eq $parts.Count) { return }
+        $key.SetValue('Path', ($kept -join ';'), $key.GetValueKind('Path'))
+    } finally {
+        $key.Dispose()
+    }
+    Send-ClaubizEnvironmentChange
+}
+
+function Test-ClaubizTask {
+    $schtasks = Join-Path ([Environment]::SystemDirectory) 'schtasks.exe'
+    return (Invoke-ClaubizQuiet $schtasks @('/Query', '/TN', $ClaubizTask)).Code -eq 0
+}
+
+function Uninstall-Claubiz([string]$PrefixPath) {
+    if (-not (Test-Path -LiteralPath (Join-Path $PrefixPath $ClaubizMarker))) {
+        Stop-ClaubizInstall "claubiz 설치 폴더가 아님: $PrefixPath"
+    }
+    if (Test-ClaubizTask) {
+        Stop-ClaubizInstall '정기 정리가 작업 스케줄러에 등록되어 있음, 먼저 claubiz agent uninstall 실행'
+    }
+    Remove-ClaubizUserPath (Join-Path $PrefixPath 'bin')
+    Remove-Item -LiteralPath $PrefixPath -Recurse -Force
+    Write-Host "claubiz 제거 완료: $PrefixPath"
+    Write-Host '데이터 폴더(%USERPROFILE%\.claubiz)와 자격 증명 관리자의 API 키는 남겨 둠'
+}
+
+function Write-ClaubizFinish([string]$PrefixPath, [string]$Bin, [bool]$PathChanged, [bool]$NoModifyPath) {
+    Write-Host ''
+    Write-Host "설치 완료: claubiz $ClaubizVersion"
+    Write-Host "  프로그램  $PrefixPath"
+    Write-Host "  명령      $(Join-Path $Bin 'claubiz.exe')"
+    Write-Host ''
+    if ($NoModifyPath) {
+        Write-Host "PATH는 바꾸지 않음. 직접 쓰려면 $Bin 경로를 사용자 PATH에 추가"
+    } elseif ($PathChanged) {
+        Write-Host "사용자 PATH에 $Bin 추가함 (이 창과 새로 여는 터미널에서 바로 사용)"
+    }
+    Write-Host ''
+    Write-Host '다음 단계'
+    Write-Host '  claubiz init        데이터 폴더(%USERPROFILE%\.claubiz)와 설정 생성 (조직 키는 --workspace-id wrkspc_...)'
+    Write-Host '  claubiz auth set    API 키를 Windows 자격 증명 관리자에 저장 (입력이 화면에 표시되지 않음)'
+    Write-Host '  claubiz             TUI 실행 (Windows Terminal 권장)'
+}
+
+function Invoke-ClaubizSetup {
+    param([string]$PrefixPath, [string]$SourceValue, [bool]$SkipPath, [bool]$Remove, [bool]$Elevated)
+    Set-StrictMode -Version 3.0
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+    $target = Get-ClaubizTarget
+    if (-not $PrefixPath) { $PrefixPath = Join-Path $env:LOCALAPPDATA 'Programs\claubiz' }
+    if (-not (Test-ClaubizLocalPath $PrefixPath)) { Stop-ClaubizInstall "설치 폴더는 C:\ 처럼 시작하는 절대 경로여야 함: $PrefixPath" }
+    $PrefixPath = [IO.Path]::GetFullPath($PrefixPath).TrimEnd('\')
+    if ((Test-ClaubizElevated) -and -not $Elevated) {
+        Stop-ClaubizInstall '관리자 권한(UAC 상승) 창에서는 설치하지 않음, 일반 PowerShell 창에서 다시 실행'
+    }
+    if ($Remove) {
+        Uninstall-Claubiz $PrefixPath
+        return
+    }
+    $base = Resolve-ClaubizSource $(if ($SourceValue) { $SourceValue } else { $ClaubizSource })
+    Test-ClaubizPrefix $PrefixPath
+    $temp = Join-Path ([IO.Path]::GetTempPath()) ("claubiz-install-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $temp | Out-Null
+    $savedEnvironment = Save-ClaubizEnvironment
+    $savedProtocol = [Net.ServicePointManager]::SecurityProtocol
+    Push-Location -LiteralPath $temp
+    try {
+        $protocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        if ([enum]::GetNames([Net.SecurityProtocolType]) -contains 'Tls13') {
+            $protocol = $protocol -bor [Net.SecurityProtocolType]::Tls13
+        }
+        [Net.ServicePointManager]::SecurityProtocol = $protocol
+        Write-Host "claubiz $ClaubizVersion 설치 시작 ($target)"
+        $wheel = Join-Path $temp $ClaubizWheel
+        $lock = Join-Path $temp 'requirements.lock'
+        Save-ClaubizRemote (Join-ClaubizSource $base $ClaubizWheel) $wheel
+        Assert-ClaubizHash $wheel $ClaubizWheelSha256
+        Save-ClaubizRemote (Join-ClaubizSource $base 'requirements.lock') $lock
+        Assert-ClaubizHash $lock $ClaubizLockSha256
+        Write-Host '배포 파일 해시 확인 완료'
+        $uv = Find-ClaubizUv
+        if (-not $uv) { $uv = Get-ClaubizUv $target $temp }
+        Initialize-ClaubizPrefix $PrefixPath
+        Set-ClaubizUvEnvironment $PrefixPath $temp
+        Install-ClaubizVenv $uv $PrefixPath $temp
+        $bin = Install-ClaubizBin $PrefixPath
+        Test-ClaubizCommand (Join-Path $bin 'claubiz.exe') $temp
+        $changed = $false
+        if (-not $SkipPath) {
+            $changed = Add-ClaubizUserPath $bin
+            if (@($env:Path -split ';' | Where-Object { $_.TrimEnd('\') -ieq $bin }).Count -eq 0) {
+                $env:Path = "$env:Path;$bin"
+            }
+        }
+    } finally {
+        Pop-Location
+        Restore-ClaubizEnvironment $savedEnvironment
+        [Net.ServicePointManager]::SecurityProtocol = $savedProtocol
+        Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Write-ClaubizFinish $PrefixPath $bin $changed $SkipPath
+}
+
+if ($Help) {
+    Write-ClaubizUsage
+    return
+}
+try {
+    Invoke-ClaubizSetup -PrefixPath $Prefix -SourceValue $Source -SkipPath $NoModifyPath.IsPresent `
+        -Remove $Uninstall.IsPresent -Elevated $AllowElevated.IsPresent
+    $global:LASTEXITCODE = 0
+} catch {
+    if ($PSCommandPath) {
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        exit 1
+    }
+    throw
+}

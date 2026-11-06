@@ -9,6 +9,7 @@ from .audit import AuditLog
 from .budget import BudgetGuard, Ledger, UsageRecord, cost_of, usage_from_message
 from .config import DYNAMIC_WEB_MODELS, OUTPUT_TOKENS_BY_EFFORT, RoleConfig, Settings
 from .events import EventBus
+from .i18n import tr
 from .workspace import WebPolicy
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -19,7 +20,7 @@ ECHO_UNSAFE_BEFORE_FALLBACK = frozenset({"thinking", "redacted_thinking", "tool_
 
 class RefusalError(Exception):
     def __init__(self, category: str | None, explanation: str | None) -> None:
-        super().__init__(f"모델이 요청을 거절함 (분류: {category or '미상'})")
+        super().__init__(tr("모델이 요청을 거절함 (분류: {category})", category=category or tr("미상")))
         self.category = category
         self.explanation = explanation
 
@@ -154,7 +155,7 @@ class LLM:
                     if btype == "server_tool_use":
                         tool_input = getattr(block, "input", {}) or {}
                         if block.name == "code_execution":
-                            detail = "검색 결과 필터링"
+                            detail = tr("검색 결과 필터링")
                         else:
                             detail = tool_input.get("query") or tool_input.get("url") or ""
                         self.bus.emit("task.tool", ctx.run_id, ctx.task_id, tool=block.name, detail=str(detail)[:200])

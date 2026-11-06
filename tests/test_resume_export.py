@@ -2,6 +2,7 @@ import asyncio
 import os
 
 import pytest
+from support import assert_private
 from test_orchestrator import _setup
 
 from claubiz.budget import BudgetGuard, Ledger, ReservationPool
@@ -161,7 +162,7 @@ async def test_export_report_is_safe(tmp_path):
     second, _ = export_report(ws, session.run_id, str(out) + "/")
     assert first.parent == out.resolve() and first.suffix == ".md" and len(digest) == 64
     assert second.name.endswith("(2).md") and first.read_text(encoding="utf-8") == ws.read_report(session.run_id)
-    assert first.stat().st_mode & 0o777 == 0o600
+    assert_private(first, 0o600)
 
     link = tmp_path / "link"
     link.symlink_to(out)

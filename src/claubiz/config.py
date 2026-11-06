@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from . import i18n
 from .paths import home, read_bytes_nofollow, write_private_text
 
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
@@ -59,14 +60,14 @@ class ApiConfig(Strict):
     @model_validator(mode="after")
     def _check(self) -> "ApiConfig":
         if self.workspace_id and not re.fullmatch(r"wrkspc_[A-Za-z0-9]{8,64}", self.workspace_id):
-            raise ValueError("api.workspace_id 형식이 올바르지 않음 (wrkspc_...)")
+            raise ValueError(i18n.tr("api.workspace_id 형식이 올바르지 않음 (wrkspc_...)"))
         parts = urlsplit(self.base_url)
         if parts.scheme != "https" or not parts.hostname:
-            raise ValueError("api.base_url은 https URL이어야 함")
+            raise ValueError(i18n.tr("api.base_url은 https URL이어야 함"))
         if parts.hostname not in self.egress_allowlist:
-            raise ValueError("api.base_url 호스트가 egress_allowlist에 없음")
+            raise ValueError(i18n.tr("api.base_url 호스트가 egress_allowlist에 없음"))
         if self.proxy and urlsplit(self.proxy).scheme not in ("http", "https"):
-            raise ValueError("api.proxy는 http 또는 https URL이어야 함")
+            raise ValueError(i18n.tr("api.proxy는 http 또는 https URL이어야 함"))
         return self
 
 
@@ -79,9 +80,9 @@ class BudgetConfig(Strict):
     @model_validator(mode="after")
     def _check(self) -> "BudgetConfig":
         if self.monthly_soft_usd > self.monthly_hard_usd:
-            raise ValueError("monthly_soft_usd는 monthly_hard_usd 이하여야 함")
+            raise ValueError(i18n.tr("monthly_soft_usd는 monthly_hard_usd 이하여야 함"))
         if self.run_default_usd > self.monthly_hard_usd:
-            raise ValueError("run_default_usd는 monthly_hard_usd 이하여야 함")
+            raise ValueError(i18n.tr("run_default_usd는 monthly_hard_usd 이하여야 함"))
         return self
 
 
@@ -97,7 +98,7 @@ class RoleConfig(Strict):
     def _check(self) -> "RoleConfig":
         lo, hi = EFFORT_ORDER.index(self.effort_min), EFFORT_ORDER.index(self.effort_max)
         if lo > hi:
-            raise ValueError("effort_min은 effort_max보다 높을 수 없음")
+            raise ValueError(i18n.tr("effort_min은 effort_max보다 높을 수 없음"))
         return self
 
     def clamp(self, effort: str) -> str:
@@ -134,6 +135,7 @@ class OrchestratorConfig(Strict):
 
 class UiConfig(Strict):
     theme: str = Field("claubiz", pattern=r"^[a-z0-9-]{2,40}$")
+    language: Literal["ko", "en"] = "ko"
 
 
 class Price(Strict):
@@ -189,7 +191,7 @@ def with_model(settings: "Settings", model: str | None) -> "Settings":
     if not model:
         return settings
     if model not in settings.pricing:
-        raise ConfigError(f"가격 정보가 없는 모델이라 쓸 수 없음: {model}")
+        raise ConfigError(i18n.tr("가격 정보가 없는 모델이라 쓸 수 없음: {model}", model=model))
     models = settings.models
     roles = {role: getattr(models, role).model_copy(update={"model": model}) for role in MODEL_ROLES}
     return settings.model_copy(update={"models": models.model_copy(update=roles)})
@@ -207,7 +209,7 @@ def load_settings(path: Path | None = None) -> Settings:
         data = tomllib.loads(read_bytes_nofollow(target, 256 * 1024).decode("utf-8"))
         return Settings.model_validate(data)
     except (tomllib.TOMLDecodeError, ValidationError, UnicodeDecodeError) as exc:
-        raise ConfigError(f"설정 파일 오류 ({target}): {exc}") from None
+        raise ConfigError(i18n.tr("설정 파일 오류 ({path}): {error}", path=target, error=exc)) from None
 
 
 DEFAULT_CONFIG_TOML = """\
@@ -260,10 +262,11 @@ max_tasks = 6
 cache_warm_fanout = true
 escalate_on_failure = true
 max_pause_continuations = 4
-output_language = "Korean"
+output_language = "{output_language}"
 
 [ui]
 theme = "claubiz"
+language = "{language}"
 """
 
 
@@ -271,7 +274,9 @@ def write_default_config(path: Path | None = None, overwrite: bool = False, work
     target = path or config_path()
     if target.exists() and not overwrite:
         return target
-    text = DEFAULT_CONFIG_TOML.replace("{workspace_id}", workspace_id)
+    lang = i18n.language()
+    text = (DEFAULT_CONFIG_TOML.replace("{workspace_id}", workspace_id)
+            .replace("{output_language}", i18n.OUTPUT_LANGUAGES[lang]).replace("{language}", lang))
     Settings.model_validate(tomllib.loads(text))
     write_private_text(target, text)
     return target

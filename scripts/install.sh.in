@@ -123,6 +123,38 @@ verify() {
     fi
 }
 
+http_reason() {
+    case "$1" in
+        404) echo "서버에 파일이 없음, 배포가 아직 반영되지 않았거나 install.sh와 배포 묶음이 맞지 않음" ;;
+        401 | 403) echo "접근 거부, 회사 방화벽이나 보안 프록시 또는 배포 서버 보안 설정이 막았을 수 있음" ;;
+        429) echo "요청이 너무 많음, 잠시 뒤 다시 실행" ;;
+        5??) echo "배포 서버 오류, 잠시 뒤 다시 실행" ;;
+        *) echo "예상하지 못한 응답" ;;
+    esac
+}
+
+curl_reason() {
+    case "$1" in
+        1) echo "https가 아닌 주소로 넘겨져 거부함, 보안 장비가 차단 페이지로 보냈을 수 있음" ;;
+        5 | 6) echo "주소를 찾지 못함, DNS나 프록시 설정 확인" ;;
+        7) echo "서버에 연결하지 못함, 방화벽이나 프록시 확인" ;;
+        23) echo "임시 폴더에 쓰지 못함, 디스크 공간이나 TMPDIR 확인" ;;
+        28) echo "시간 초과, 네트워크 확인" ;;
+        35 | 60 | 77 | 83 | 90 | 91) echo "TLS 연결이나 인증서 확인 실패, 회사 보안 프록시가 HTTPS를 가로채는 환경일 수 있음" ;;
+        52 | 56) echo "연결이 중간에 끊김, 네트워크나 프록시 확인" ;;
+        *) echo "위 curl 메시지 확인" ;;
+    esac
+}
+
+wget_reason() {
+    case "$1" in
+        4) echo "네트워크 오류, 방화벽이나 프록시 확인" ;;
+        5) echo "TLS 인증서 확인 실패, 회사 보안 프록시가 HTTPS를 가로채는 환경일 수 있음" ;;
+        8) echo "서버가 오류로 응답함 (파일 없음 또는 접근 거부)" ;;
+        *) echo "wget 옵션이나 환경 문제, curl 설치 후 다시 실행" ;;
+    esac
+}
+
 fetch() {
     src=$1
     dest=$2
@@ -139,11 +171,21 @@ fetch() {
         *) die "허용되지 않는 주소: $src" ;;
     esac
     if command -v curl >/dev/null 2>&1; then
-        curl --proto "$proto" --proto-redir "$proto" --tlsv1.2 -fsSL --retry 3 --connect-timeout 20 \
-            -o "$dest" "$src" </dev/null || die "내려받기 실패: $src"
+        status=$(curl --proto "$proto" --proto-redir "$proto" --tlsv1.2 -sSL --retry 3 --connect-timeout 20 \
+            -w '%{http_code}' -o "$dest" "$src" </dev/null) || {
+            code=$?
+            die "내려받기 실패 (curl 오류 $code, $(curl_reason "$code")): $src"
+        }
+        if [ "$status" != 200 ]; then
+            rm -f "$dest"
+            die "내려받기 실패 (HTTP $status, $(http_reason "$status")): $src"
+        fi
     elif command -v wget >/dev/null 2>&1; then
         [ "$proto" = '=https' ] || die "http 주소는 curl로만 받을 수 있음: $src"
-        wget --https-only -q -O "$dest" "$src" </dev/null || die "내려받기 실패: $src"
+        wget --https-only -q -O "$dest" "$src" </dev/null || {
+            code=$?
+            die "내려받기 실패 (wget 오류 $code, $(wget_reason "$code")): $src"
+        }
     else
         die "curl 또는 wget이 필요함"
     fi
@@ -309,6 +351,7 @@ install_claubiz() {
     TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/claubiz-install.XXXXXX")
     trap cleanup EXIT
     trap 'exit 130' INT TERM HUP
+    trap 'exit 141' PIPE
     cd "$TMP_DIR"
     say "claubiz $CLAUBIZ_VERSION 설치 시작 ($TARGET)"
     release="$SOURCE/releases/$CLAUBIZ_RELEASE"

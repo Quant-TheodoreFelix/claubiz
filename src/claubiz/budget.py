@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from . import hostos
 from .config import Settings
+from .i18n import tr
 from .paths import home
 
 
@@ -138,7 +140,7 @@ class Ledger:
         fresh = not self.path.exists()
         self._conn = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
         if fresh:
-            self.path.chmod(0o600)
+            hostos.restrict_file(self.path)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=FULL")
         self._conn.executescript(SCHEMA)
@@ -273,14 +275,14 @@ class BudgetGuard:
         workspace = extra + (snap["workspace_reserved"] if pending else 0.0)
         run = extra + (snap["reserved"] if pending else 0.0)
         if snap["cycle_spent"] + cycle > snap["hard_cap"]:
-            return f"월 예산 상한 초과 예상: 사용 ${snap['cycle_spent']:.2f} + ${cycle:.2f} > ${snap['hard_cap']:.2f}"
+            return tr("월 예산 상한 초과 예상: 사용 ${spent:.2f} + ${extra:.2f} > ${cap:.2f}",
+                      spent=snap["cycle_spent"], extra=cycle, cap=snap["hard_cap"])
         if snap["workspace_cap"] and snap["workspace_spent"] + workspace > snap["workspace_cap"]:
-            return (
-                f"작업 영역 예산 초과 예상: 사용 ${snap['workspace_spent']:.2f} + ${workspace:.2f}"
-                f" > ${snap['workspace_cap']:.2f}"
-            )
+            return tr("작업 영역 예산 초과 예상: 사용 ${spent:.2f} + ${extra:.2f} > ${cap:.2f}",
+                      spent=snap["workspace_spent"], extra=workspace, cap=snap["workspace_cap"])
         if snap["run_spent"] + run > snap["run_cap"]:
-            return f"이번 실행 예산 초과 예상: 사용 ${snap['run_spent']:.2f} + ${run:.2f} > ${snap['run_cap']:.2f}"
+            return tr("이번 실행 예산 초과 예상: 사용 ${spent:.2f} + ${extra:.2f} > ${cap:.2f}",
+                      spent=snap["run_spent"], extra=run, cap=snap["run_cap"])
         return None
 
     async def reserve(self, amount: float, label: str) -> Reservation:

@@ -1,8 +1,7 @@
 [project]
 name = "claubiz"
-version = "0.1.0"
+version = "1.0.0"
 description = "Claude API 기반 로컬 비즈니스 자동화 멀티 에이전트 SDK"
-readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=2.4.0",
@@ -11,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-claubiz = "claubiz.cli:main"
+claubiz = "claubiz.launcher:main"
 
 [build-system]
 requires = ["hatchling"]
