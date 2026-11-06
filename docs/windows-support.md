@@ -5,6 +5,20 @@
 - 목표 버전: 1.0.0 (첫 릴리스, Windows 지원 포함)
 - 원칙: macOS/Linux와 같은 보안 수준을 Windows에서도 지킨다. 보안 검사를 빼서 실행만 되게 만드는 포팅은 하지 않는다.
 
+## 진행 상황 (2026-11-06)
+
+- 0~4단계와 로케일 지원을 구현했고, CI(Ubuntu, macOS, Windows x64, Windows ARM64)에서 테스트, install.sh, install.ps1 설치와 제거를 확인함
+- 5단계(실제 Windows Terminal에서 한글 화면, 입력기, 단축키 수동 점검)는 남아 있음
+- 10절에서 미리 확인하기로 한 것의 결과
+  - `bin`으로 복사한 `claubiz.exe`는 고정 경로 가상 환경에서 그대로 실행됨
+  - API 키는 `CRED_PERSIST_LOCAL_MACHINE`으로 저장됨 (CI에서 자격 증명 관리자 값으로 확인)
+  - 정션과 심볼릭 링크는 경로 대체 비트로 거부되고, 바이트는 줄바꿈 변환 없이 왕복함
+- 계획과 달라진 점
+  - 관리자 권한(UAC 상승) 프로세스가 만든 객체는 소유자가 Administrators가 되므로, 새 파일과 폴더를 만들 때 소유자를 현재 사용자로 명시함. 상승된 프로세스에서만 Administrators 소유를 허용함
+  - 폴더 삭제 중 링크를 만나면 멈추지 않고 링크 자체만 지움 (POSIX `shutil.rmtree`와 같은 동작, 링크 대상은 건드리지 않음)
+  - `install.ps1`에 `-AllowElevated`를 추가함. GitHub의 Windows 실행 환경이 관리자 권한이라 CI 시험용으로만 씀
+  - 화면 언어는 `--lang`, `CLAUBIZ_LANG`, 설정의 `ui.language`, 설정이 없을 때만 OS 화면 언어 순으로 정함. 기존 설정은 한국어로 유지됨
+
 ## 결정 요약
 
 | 항목 | 결정 |
