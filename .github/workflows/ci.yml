@@ -56,3 +56,87 @@ jobs:
       - run: uv run --frozen ruff check src tests scripts
       - run: shellcheck -s sh scripts/install.sh.in
       - run: uv run --frozen python scripts/release.py --base-url https://get.example.com --out "$RUNNER_TEMP/site" --online
+
+  install-unix:
+    name: install.sh (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - run: uv sync --locked
+      - run: uv run --frozen python scripts/release.py --base-url https://get.example.com --out "$RUNNER_TEMP/site" --online
+      - name: fresh install without uv on PATH
+        run: env PATH=/usr/bin:/bin:/usr/sbin:/sbin sh "$RUNNER_TEMP/site/install.sh" --source "$RUNNER_TEMP/site" --prefix "$RUNNER_TEMP/prefix" --bin-dir "$RUNNER_TEMP/bin"
+      - run: test "$(CLAUBIZ_HOME="$RUNNER_TEMP/home" "$RUNNER_TEMP/bin/claubiz" --version)" = "claubiz $(uv run --frozen python -c 'import claubiz; print(claubiz.__version__)')"
+      - name: reinstall with existing uv
+        run: sh "$RUNNER_TEMP/site/install.sh" --source "$RUNNER_TEMP/site" --prefix "$RUNNER_TEMP/prefix" --bin-dir "$RUNNER_TEMP/bin"
+      - name: uninstall
+        run: |
+          sh "$RUNNER_TEMP/site/install.sh" --uninstall --prefix "$RUNNER_TEMP/prefix" --bin-dir "$RUNNER_TEMP/bin"
+          test ! -e "$RUNNER_TEMP/prefix" && test ! -e "$RUNNER_TEMP/bin/claubiz"
+
+  install-windows:
+    name: install.ps1 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - run: uv sync --locked
+      - run: uv run --frozen python scripts/release.py --base-url https://get.example.com --out "$env:RUNNER_TEMP\site" --online
+      - name: elevated session is refused by default
+        shell: pwsh
+        run: |
+          $script = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 "$env:RUNNER_TEMP\site\install.ps1"))
+          $refused = $false
+          try { & $script -Source "$env:RUNNER_TEMP\site" } catch { $refused = $_.Exception.Message -like '*UAC*' }
+          if (-not $refused) { throw 'elevated install was not refused' }
+      - name: fresh install with Windows PowerShell 5.1 without uv on PATH
+        shell: powershell
+        run: |
+          $env:Path = ($env:Path -split ';' | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'uv.exe')) }) -join ';'
+          $script = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 "$env:RUNNER_TEMP\site\install.ps1"))
+          & $script -Source "$env:RUNNER_TEMP\site" -AllowElevated
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\claubiz\bin\claubiz.exe'
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if ([Environment]::GetEnvironmentVariable('Path', 'User') -notlike '*Programs\claubiz\bin*') { throw 'user PATH not updated' }
+      - name: reinstall with pwsh and existing uv
+        shell: pwsh
+        run: |
+          $script = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 "$env:RUNNER_TEMP\site\install.ps1"))
+          & $script -Source "$env:RUNNER_TEMP\site" -AllowElevated
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\claubiz\bin\claubiz.exe'
+          $env:CLAUBIZ_HOME = Join-Path $env:RUNNER_TEMP 'home'
+          & $exe init
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $exe ws create demo --scope research
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $exe ws list
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: uninstall
+        shell: pwsh
+        run: |
+          $script = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 "$env:RUNNER_TEMP\site\install.ps1"))
+          & $script -Uninstall -AllowElevated
+          if (Test-Path (Join-Path $env:LOCALAPPDATA 'Programs\claubiz')) { throw 'install folder left behind' }
+          if ([Environment]::GetEnvironmentVariable('Path', 'User') -like '*Programs\claubiz\bin*') { throw 'user PATH entry left behind' }

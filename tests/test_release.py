@@ -48,6 +48,25 @@ def test_render_fills_every_value():
         assert result.returncode == 0, result.stderr
 
 
+def test_powershell_installer_renders_and_parses(tmp_path):
+    template = (ROOT / "scripts" / "install.ps1.in").read_text(encoding="utf-8")
+    values = {"VERSION": "1.0.0", "RELEASE": "1.0.0-abcdef123456", "BASE_URL": "https://get.example.com",
+              "WHEEL": "claubiz-1.0.0-py3-none-any.whl", "WHEEL_SHA256": "a" * 64, "LOCK_SHA256": "b" * 64}
+    text = release.render_installer(template, values)
+    assert "$ClaubizWheelSha256 = '" + "a" * 64 + "'" in text
+    assert "exit" not in text.split("} catch {")[-1].split("if ($PSCommandPath)")[0]
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if not shell:
+        pytest.skip("PowerShell not installed")
+    script = tmp_path / "install.ps1"
+    script.write_text(text, encoding="utf-8", newline="\n")
+    check = (f"$t = $null; $e = $null; [System.Management.Automation.Language.Parser]::ParseFile('{script}', "
+             "[ref]$t, [ref]$e) | Out-Null; if ($e.Count) { $e | ForEach-Object { $_.Message }; exit 1 }")
+    result = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command", check], capture_output=True,
+                            encoding="utf-8", check=False, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_wheel_content_checks(tmp_path):
     good = fake_wheel(tmp_path)
     release.check_wheel(good, "0.1.0")
@@ -77,14 +96,20 @@ def test_build_release_layout_and_immutability(tmp_path, monkeypatch):
     assert info["release"] == f"{version}-{wheel_sha[:12]}"
     installer = (out / "install.sh").read_text(encoding="utf-8")
     assert installer == (rel / "install.sh").read_text(encoding="utf-8")
+    ps_installer = (out / "install.ps1").read_bytes()
+    assert ps_installer == (rel / "install.ps1").read_bytes() and b"\r\n" not in ps_installer
+    assert f"$ClaubizWheelSha256 = '{wheel_sha}'".encode() in ps_installer
+    assert b"\r\n" not in (out / "install.sh").read_bytes()
     assert f"CLAUBIZ_WHEEL_SHA256='{wheel_sha}'" in installer
     assert "CLAUBIZ_SOURCE='https://get.example.com'" in installer
     headers = (out / "_headers").read_text(encoding="utf-8").splitlines()
-    for path in ("/install.sh", "/SHA256SUMS", "/releases/:release/install.sh"):
+    for path in ("/install.sh", "/install.ps1", "/SHA256SUMS", "/releases/:release/install.sh",
+                 "/releases/:release/install.ps1"):
         assert headers[headers.index(path) + 1] == "  Content-Type: text/plain; charset=utf-8"
     assert "  X-Content-Type-Options: nosniff" in headers
     assert not any("whl" in line for line in headers)
     sums = dict(line.split("  ")[::-1] for line in (out / "SHA256SUMS").read_text().splitlines())
+    assert {"install.sh", "install.ps1", f"releases/{info['release']}/install.ps1"} <= set(sums)
     for name, digest in sums.items():
         assert hashlib.sha256((out / name).read_bytes()).hexdigest() == digest
     assert release.build_release("https://get.example.com", out)["release"] == info["release"]
