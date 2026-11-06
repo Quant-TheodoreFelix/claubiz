@@ -8,6 +8,7 @@ from textual.geometry import Offset
 from textual.message import Message
 from textual.widgets import DataTable, Markdown, MarkdownViewer, OptionList, Static
 
+from ..i18n import tr
 from .theme import CLAY, ERROR, FAINT, MUTED, STATUS_STYLES, SUCCESS, WARNING
 
 MAX_URL_LENGTH = 2048
@@ -32,10 +33,10 @@ def open_link(app: App, href: str, viewer: MarkdownViewer | None = None) -> None
         return
     url = safe_web_url(href)
     if url is None:
-        app.notify("웹 주소(http, https)가 아닌 링크는 열지 않음", severity="warning")
+        app.notify(tr("웹 주소(http, https)가 아닌 링크는 열지 않음"), severity="warning")
         return
     app.open_url(url)
-    app.notify(url[:90], title="브라우저로 열기", timeout=3)
+    app.notify(url[:90], title=tr("브라우저로 열기"), timeout=3)
 
 
 class SafeMarkdownViewer(MarkdownViewer):
@@ -66,38 +67,38 @@ class FitTable(DataTable):
 
 class RunsTable(FitTable):
     BINDINGS = [
-        Binding("ctrl+enter", "app.follow_up", "이어서 작업 또는 재개"),
-        Binding("c", "app.export_report", "보고서 복사"),
-        Binding("a", "app.propose_actions", "행동 제안 받기"),
-        Binding("delete,backspace", "app.delete_run", "기록 제거"),
+        Binding("ctrl+enter", "app.follow_up", tr("이어서 작업 또는 재개")),
+        Binding("c", "app.export_report", tr("보고서 복사")),
+        Binding("a", "app.propose_actions", tr("행동 제안 받기")),
+        Binding("delete,backspace", "app.delete_run", tr("기록 제거")),
     ]
 
 
 class FactsTable(FitTable):
-    BINDINGS = [Binding("delete,backspace", "app.delete_fact", "지식 제거")]
+    BINDINGS = [Binding("delete,backspace", "app.delete_fact", tr("지식 제거"))]
 
 
 class DigestsTable(FitTable):
     BINDINGS = [
-        Binding("r", "app.run_digest", "지금 실행"),
-        Binding("space", "app.toggle_digest", "켜기/끄기"),
-        Binding("e", "app.edit_digest", "편집"),
-        Binding("delete,backspace", "app.delete_digest", "제거"),
+        Binding("r", "app.run_digest", tr("지금 실행")),
+        Binding("space", "app.toggle_digest", tr("켜기/끄기")),
+        Binding("e", "app.edit_digest", tr("편집")),
+        Binding("delete,backspace", "app.delete_digest", tr("제거")),
     ]
 
 
 class ActionsTable(FitTable):
     BINDINGS = [
-        Binding("y", "app.approve_action", "승인"),
-        Binding("n", "app.reject_action", "거절"),
-        Binding("o", "app.open_action", "열기"),
-        Binding("c", "app.export_action", "복사"),
-        Binding("delete,backspace", "app.delete_action", "제거"),
+        Binding("y", "app.approve_action", tr("승인")),
+        Binding("n", "app.reject_action", tr("거절")),
+        Binding("o", "app.open_action", tr("열기")),
+        Binding("c", "app.export_action", tr("복사")),
+        Binding("delete,backspace", "app.delete_action", tr("제거")),
     ]
 
 
 class InputsTable(FitTable):
-    BINDINGS = [Binding("delete,backspace", "app.delete_input", "자료 제거")]
+    BINDINGS = [Binding("delete,backspace", "app.delete_input", tr("자료 제거"))]
 
 
 class JobsCard(Static):
@@ -117,7 +118,7 @@ class JobsCard(Static):
 
 
 class WorkspaceList(OptionList):
-    BINDINGS = [Binding("delete,backspace", "app.delete_workspace", "작업 영역 제거")]
+    BINDINGS = [Binding("delete,backspace", "app.delete_workspace", tr("작업 영역 제거"))]
 
     class MenuRequested(Message):
         def __init__(self, index: int, offset: Offset) -> None:
@@ -150,7 +151,7 @@ class BudgetMeter(Static):
         filled = round(ratio * width)
         color = ERROR if spent >= hard else (WARNING if spent >= soft else SUCCESS)
         text = Text()
-        text.append("이번 주기 ", style=MUTED)
+        text.append(tr("이번 주기 "), style=MUTED)
         text.append("━" * filled, style=color)
         text.append("━" * (width - filled), style=FAINT)
         text.append(f"  ${spent:,.2f}", style=f"bold {color}")

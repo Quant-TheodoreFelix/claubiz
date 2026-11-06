@@ -38,6 +38,7 @@ from ..config import MODEL_CHOICES, MODEL_ROLES, ConfigError, Settings, load_set
 from ..derived import derived_counts, purge_derived
 from ..digest import DigestClaim, DigestError, DigestSpec, DigestStore, finish_digest, start_digest
 from ..events import Event
+from ..i18n import tr
 from ..knowledge import KnowledgeStore
 from ..orchestrator import FOLLOWABLE as RECORD_FOLLOWABLE
 from ..orchestrator import RunError
@@ -78,7 +79,7 @@ from .widgets import (
     status_text,
 )
 
-SCOPE_LABELS = {"research": "웹 + 자료", "web-only": "웹 전용", "inputs-only": "자료 전용"}
+SCOPE_LABELS = {"research": tr("웹 + 자료"), "web-only": tr("웹 전용"), "inputs-only": tr("자료 전용")}
 TASK_EVENT_STATUS = {
     "task.queued": "queued",
     "task.started": "running",
@@ -92,21 +93,22 @@ TASK_END_EVENTS = frozenset({"task.done", "task.reused", "task.failed", "task.bl
 FOLLOWABLE = ("completed", "partial")
 RESUMABLE_VIEW = ("cancelled", "failed", "interrupted")
 PHASE_LABELS = {
-    "planning": "계획 중",
-    "planned": "승인 대기",
-    "running": "실행 중",
-    "completed": "완료",
-    "partial": "일부 완료",
-    "failed": "실패",
-    "cancelled": "중단됨",
-    "error": "오류",
-    "stopped": "계획 중단",
-    "rejected": "취소됨",
+    "planning": tr("계획 중"),
+    "planned": tr("승인 대기"),
+    "running": tr("실행 중"),
+    "completed": tr("완료"),
+    "partial": tr("일부 완료"),
+    "failed": tr("실패"),
+    "cancelled": tr("중단됨"),
+    "error": tr("오류"),
+    "stopped": tr("계획 중단"),
+    "rejected": tr("취소됨"),
 }
 PHASE_COLORS = {"completed": SUCCESS, "partial": WARNING, "failed": ERROR, "error": ERROR, "cancelled": WARNING}
 CONFIG_MODEL = "config"
-DEFAULT_GOAL_HINT = "무엇을 조사할까요? 정리가 필요하신가요? 무엇이든 적어주세요. 예: 국내 전자계약 SaaS 시장과 주요 경쟁사 조사"
-FOLLOW_GOAL_HINT = "이전 결과를 바탕으로 더 할 일을 적어주세요. 예: 경쟁사 가격 정책을 비교표로 추가"
+DEFAULT_GOAL_HINT = tr("무엇을 조사할까요? 정리가 필요하신가요? 무엇이든 적어주세요. 예: 국내 전자계약 SaaS 시장과 "
+                       "주요 경쟁사 조사")
+FOLLOW_GOAL_HINT = tr("이전 결과를 바탕으로 더 할 일을 적어주세요. 예: 경쟁사 가격 정책을 비교표로 추가")
 ESC_FIRST_GAP = 0.5
 ESC_REPEAT_GAP = 0.16
 ESC_HINT_AFTER = 0.3
@@ -116,16 +118,16 @@ TAB_FOCUS = {"tab-run": "#goal", "tab-history": "#runs", "tab-inputs": "#inputs"
              "tab-actions": "#action-list"}
 DIGEST_CHECK_SECONDS = 30
 NARROW_LABELS = {
-    "#new-pb": ("+", "+ 플레이북"),
-    "#import": ("+ 자료", "+ 자료 가져오기"),
-    "#import-run": ("+ 다른 영역", "+ 다른 작업 영역 기록"),
-    "#edit-brief": ("지침", "지침 편집"),
-    "#edit-profile": ("프로필", "업무 프로필"),
+    "#new-pb": ("+", tr("+ 플레이북")),
+    "#import": (tr("+ 자료"), tr("+ 자료 가져오기")),
+    "#import-run": (tr("+ 다른 영역"), tr("+ 다른 작업 영역 기록")),
+    "#edit-brief": (tr("지침"), tr("지침 편집")),
+    "#edit-profile": (tr("프로필"), tr("업무 프로필")),
 }
-ACTION_STATUS = {"pending": ("●", "승인 대기", CLAY), "done": ("✓", "파일 생성", SUCCESS),
-                 "rejected": ("○", "거절", FAINT)}
-DIGEST_RESULT = {"completed": ("완료", SUCCESS), "partial": ("일부 완료", WARNING), "failed": ("실패", ERROR),
-                 "cancelled": ("중단", WARNING), "running": ("실행 중", CLAY)}
+ACTION_STATUS = {"pending": ("●", tr("승인 대기"), CLAY), "done": ("✓", tr("파일 생성"), SUCCESS),
+                 "rejected": ("○", tr("status\x04거절"), FAINT)}
+DIGEST_RESULT = {"completed": (tr("완료"), SUCCESS), "partial": (tr("일부 완료"), WARNING),
+                 "failed": (tr("실패"), ERROR), "cancelled": (tr("중단"), WARNING), "running": (tr("실행 중"), CLAY)}
 
 
 CLASS_STYLE = {"public": MUTED, "internal": CLAY, "confidential": ERROR}
@@ -175,20 +177,20 @@ class ClaubizApp(App[None]):
     TITLE = "claubiz"
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [
-        Binding("ctrl+n", "new_workspace", "새 작업 영역", priority=True),
-        Binding("f5", "plan", "계획", priority=True),
-        Binding("f9", "direct", "바로 실행", priority=True),
-        Binding("f6", "execute", "실행", priority=True),
-        Binding("escape", "interrupt", "중단 (길게: 종료)"),
-        Binding("f8", "cancel", "취소", show=False, priority=True),
-        Binding("f2", "show_tab('tab-run')", "실행 탭", show=False, priority=True),
-        Binding("f3", "show_tab('tab-history')", "기록", show=False, priority=True),
-        Binding("f4", "show_tab('tab-inputs')", "자료", show=False, priority=True),
-        Binding("f1", "show_tab('tab-digests')", "정기 정리", show=False, priority=True),
-        Binding("f10", "show_tab('tab-actions')", "제안", show=False, priority=True),
-        Binding("f7", "open_report", "보고서", priority=True),
-        Binding("ctrl+o", "import_inputs", "자료 가져오기", show=False, priority=True),
-        Binding("ctrl+q", "quit", "종료"),
+        Binding("ctrl+n", "new_workspace", tr("새 작업 영역"), priority=True),
+        Binding("f5", "plan", tr("계획"), priority=True),
+        Binding("f9", "direct", tr("바로 실행"), priority=True),
+        Binding("f6", "execute", tr("실행"), priority=True),
+        Binding("escape", "interrupt", tr("중단 (길게: 종료)")),
+        Binding("f8", "cancel", tr("취소"), show=False, priority=True),
+        Binding("f2", "show_tab('tab-run')", tr("실행 탭"), show=False, priority=True),
+        Binding("f3", "show_tab('tab-history')", tr("기록"), show=False, priority=True),
+        Binding("f4", "show_tab('tab-inputs')", tr("자료"), show=False, priority=True),
+        Binding("f1", "show_tab('tab-digests')", tr("정기 정리"), show=False, priority=True),
+        Binding("f10", "show_tab('tab-actions')", tr("제안"), show=False, priority=True),
+        Binding("f7", "open_report", tr("보고서"), priority=True),
+        Binding("ctrl+o", "import_inputs", tr("자료 가져오기"), show=False, priority=True),
+        Binding("ctrl+q", "quit", tr("종료")),
     ]
     MAIN_SCREEN_ACTIONS = frozenset({
         "new_workspace", "plan", "direct", "execute", "cancel", "show_tab", "open_report", "import_inputs",
@@ -241,84 +243,84 @@ class ClaubizApp(App[None]):
             yield BudgetMeter("", id="meter")
         with Horizontal(id="body"):
             with Vertical(id="sidebar"):
-                yield Static("작업 영역", classes="section-title")
+                yield Static(tr("list\x04작업 영역"), classes="section-title")
                 yield WorkspaceList(id="ws-list")
-                yield Button("+ 새 작업 영역", id="new-ws", classes="ghost")
+                yield Button(tr("+ 새 작업 영역"), id="new-ws", classes="ghost")
                 yield JobsCard("", id="jobs-card", classes="card")
                 yield Static("", id="ws-card", classes="card")
             with Vertical(id="main"):
                 with TabbedContent(initial="tab-run", id="tabs"):
-                    with TabPane("실행", id="tab-run"):
+                    with TabPane(tr("실행"), id="tab-run"):
                         with Vertical(id="composer", classes="card") as composer:
-                            composer.border_title = "새 목표"
+                            composer.border_title = tr("새 목표")
                             with Horizontal(id="composer-row"):
-                                yield Select(self._playbook_options(), prompt="플레이북 없이 자유 목표", id="pb")
-                                yield Button("+ 플레이북", id="new-pb", classes="ghost")
+                                yield Select(self._playbook_options(), prompt=tr("플레이북 없이 자유 목표"), id="pb")
+                                yield Button(tr("+ 플레이북"), id="new-pb", classes="ghost")
                                 model = Select(self._model_options(), value=CONFIG_MODEL, allow_blank=False, id="model")
-                                model.tooltip = "모든 역할에 쓸 모델 · 실행 중에도 바꿀 수 있고 다음 호출부터 적용됨"
+                                model.tooltip = tr("모든 역할에 쓸 모델 · 실행 중에도 바꿀 수 있고 다음 호출부터 적용됨")
                                 yield model
                                 with Horizontal(id="cap-box") as cap_box:
-                                    cap_box.tooltip = "이번 실행의 예산 상한 (USD)"
+                                    cap_box.tooltip = tr("이번 실행의 예산 상한 (USD)")
                                     yield Static("$", id="cap-prefix")
-                                    yield Input(placeholder="실행 상한", type="number", id="cap")
+                                    yield Input(placeholder=tr("실행 상한"), type="number", id="cap")
                             with Horizontal(id="follow-bar"):
                                 yield Static("", id="follow-text")
-                                yield Button("해제", id="follow-clear", classes="ghost")
+                                yield Button(tr("해제"), id="follow-clear", classes="ghost")
                             yield TextArea(id="goal", placeholder=DEFAULT_GOAL_HINT, soft_wrap=True)
                             with Horizontal(id="actions"):
-                                yield Button("계획  F5", id="plan", variant="primary")
-                                yield Button("바로 실행  F9", id="direct")
-                                yield Button("실행  F6", id="exec", variant="success")
-                                yield Button("취소  Esc", id="cancel", variant="error")
+                                yield Button(tr("계획  F5"), id="plan", variant="primary")
+                                yield Button(tr("바로 실행  F9"), id="direct")
+                                yield Button(tr("실행  F6"), id="exec", variant="success")
+                                yield Button(tr("취소  Esc"), id="cancel", variant="error")
                                 yield Static("", id="run-state")
                         yield Static("", id="plan-card", classes="card")
                         with Horizontal(id="run-split"):
                             tasks = FitTable(id="tasks", cursor_type="row", zebra_stripes=False, classes="card")
-                            tasks.border_title = "작업"
+                            tasks.border_title = tr("list\x04작업")
                             yield tasks
                             log = ActivityLog(id="log", classes="card")
-                            log.border_title = "활동"
+                            log.border_title = tr("활동")
                             yield log
-                    with TabPane("기록", id="tab-history"):
+                    with TabPane(tr("기록"), id="tab-history"):
                         runs = RunsTable(id="runs", cursor_type="row", classes="card")
-                        runs.border_title = "실행 기록 · Enter 열기 · Ctrl+Enter 이어서 작업/재개 · C 보고서 복사 · Del 제거"
+                        runs.border_title = tr("실행 기록 · Enter 열기 · Ctrl+Enter 이어서 작업/재개 · C 보고서 복사 · Del 제거")
                         yield runs
                         with VerticalScroll(id="preview-box", classes="card") as preview:
-                            preview.border_title = "미리보기"
+                            preview.border_title = tr("미리보기")
                             yield Markdown("", open_links=False, id="run-preview")
-                    with TabPane("자료", id="tab-inputs"):
+                    with TabPane(tr("자료"), id="tab-inputs"):
                         with Horizontal(id="inputs-actions"):
-                            yield Button("+ 자료 가져오기", id="import", classes="ghost")
-                            yield Button("+ 다른 작업 영역 기록", id="import-run", classes="ghost")
-                            yield Button("지침 편집", id="edit-brief", classes="ghost")
-                            yield Button("업무 프로필", id="edit-profile", classes="ghost")
+                            yield Button(tr("+ 자료 가져오기"), id="import", classes="ghost")
+                            yield Button(tr("+ 다른 작업 영역 기록"), id="import-run", classes="ghost")
+                            yield Button(tr("지침 편집"), id="edit-brief", classes="ghost")
+                            yield Button(tr("업무 프로필"), id="edit-profile", classes="ghost")
                             yield Static("", id="brief-state")
                         inputs = InputsTable(id="inputs", cursor_type="row", classes="card")
-                        inputs.border_title = "입력 자료 · Del 제거"
+                        inputs.border_title = tr("입력 자료 · Del 제거")
                         yield inputs
                         facts = FactsTable(id="facts", cursor_type="row", classes="card")
-                        facts.border_title = "누적 지식 · Del 제거"
+                        facts.border_title = tr("누적 지식 · Del 제거")
                         yield facts
                         yield Static("", id="fact-detail")
                         policy = Static("", id="policy", classes="card")
-                        policy.border_title = "정책"
+                        policy.border_title = tr("정책")
                         yield policy
-                    with TabPane("정기 정리", id="tab-digests"):
+                    with TabPane(tr("정기 정리"), id="tab-digests"):
                         with Horizontal(id="digest-actions"):
-                            yield Button("+ 새 정기 정리", id="new-digest", classes="ghost")
+                            yield Button(tr("+ 새 정기 정리"), id="new-digest", classes="ghost")
                             yield Static("", id="agent-state")
                         digests = DigestsTable(id="digests", cursor_type="row", classes="card")
-                        digests.border_title = "정기 정리 · R 지금 실행 · Space 켜기/끄기 · E 편집 · Del 제거"
+                        digests.border_title = tr("정기 정리 · R 지금 실행 · Space 켜기/끄기 · E 편집 · Del 제거")
                         yield digests
                         with VerticalScroll(id="digest-preview-box", classes="card") as digest_box:
-                            digest_box.border_title = "최근 결과"
+                            digest_box.border_title = tr("최근 결과")
                             yield Markdown("", open_links=False, id="digest-preview")
-                    with TabPane("제안", id="tab-actions"):
+                    with TabPane(tr("제안"), id="tab-actions"):
                         actions = ActionsTable(id="action-list", cursor_type="row", classes="card")
-                        actions.border_title = "행동 제안 · Y 승인 · N 거절 · O 열기 · C 복사 · Del 제거"
+                        actions.border_title = tr("행동 제안 · Y 승인 · N 거절 · O 열기 · C 복사 · Del 제거")
                         yield actions
                         with VerticalScroll(id="action-preview-box", classes="card") as action_box:
-                            action_box.border_title = "미리보기"
+                            action_box.border_title = tr("미리보기")
                             yield Markdown("", open_links=False, id="action-preview")
         yield Footer()
 
@@ -335,8 +337,9 @@ class ClaubizApp(App[None]):
         try:
             self.runtime = factory()
         except Exception as exc:
-            self.log_line(f"[{ERROR}]초기화 실패: {escape(str(exc))}[/]")
-            self.notify(str(exc), title="초기화 실패", severity="error", timeout=10)
+            message = tr("초기화 실패: {error}", error=escape(str(exc)))
+            self.log_line(f"[{ERROR}]{message}[/]")
+            self.notify(str(exc), title=tr("초기화 실패"), severity="error", timeout=10)
         else:
             self.runtime.bus.listen(self._on_event)
             self.query_one("#cap", Input).value = self._default_cap()
@@ -357,26 +360,29 @@ class ClaubizApp(App[None]):
 
     def _setup_tables(self) -> None:
         tasks = self.query_one("#tasks", DataTable)
-        for label, key in (("ID", "id"), ("작업", "title"), ("effort", "effort"), ("웹", "web"),
-                           ("상태", "status"), ("비용", "cost")):
+        for label, key in (("ID", "id"), (tr("작업"), "title"), ("effort", "effort"), (tr("웹"), "web"),
+                           (tr("상태"), "status"), (tr("비용"), "cost")):
             tasks.add_column(label, key=key)
         runs = self.query_one("#runs", DataTable)
-        for label, key in (("일시", "when"), ("상태", "status"), ("방식", "playbook"), ("목표", "goal"),
-                           ("작업", "tasks"), ("비용", "cost")):
+        for label, key in ((tr("일시"), "when"), (tr("상태"), "status"), (tr("방식"), "playbook"),
+                           (tr("목표"), "goal"), (tr("list\x04작업"), "tasks"), (tr("비용"), "cost")):
             runs.add_column(label, key=key)
         inputs = self.query_one("#inputs", DataTable)
-        for label, key in (("파일", "name"), ("등급", "class"), ("글자 수", "chars"), ("가져온 시각", "at")):
+        for label, key in ((tr("파일"), "name"), (tr("등급"), "class"), (tr("글자 수"), "chars"),
+                           (tr("가져온 시각"), "at")):
             inputs.add_column(label, key=key)
         facts = self.query_one("#facts", DataTable)
-        for label, key in (("날짜", "as_of"), ("주제", "topic"), ("내용", "text"), ("등급", "class")):
+        for label, key in ((tr("날짜"), "as_of"), (tr("주제"), "topic"), (tr("내용"), "text"),
+                           (tr("등급"), "class")):
             facts.add_column(label, key=key)
         digests = self.query_one("#digests", DataTable)
-        for label, key in (("이름", "title"), ("일정", "schedule"), ("다음 실행", "next"), ("상태", "state"),
-                           ("최근 결과", "last"), ("모델", "model"), ("상한", "cap")):
+        for label, key in ((tr("이름"), "title"), (tr("일정"), "schedule"), (tr("다음 실행"), "next"),
+                           (tr("상태"), "state"), (tr("최근 결과"), "last"), (tr("모델"), "model"),
+                           (tr("상한"), "cap")):
             digests.add_column(label, key=key)
         actions = self.query_one("#action-list", DataTable)
-        for label, key in (("생성", "created"), ("유형", "type"), ("제목", "title"), ("상태", "status"),
-                           ("등급", "class")):
+        for label, key in ((tr("생성"), "created"), (tr("유형"), "type"), (tr("제목"), "title"),
+                           (tr("상태"), "status"), (tr("등급"), "class")):
             actions.add_column(label, key=key)
 
     @property
@@ -406,11 +412,12 @@ class ClaubizApp(App[None]):
         return action not in self.MAIN_SCREEN_ACTIONS or len(self.screen_stack) == 1
 
     def _playbook_options(self) -> list[tuple[str, str]]:
-        return [(p.title if p.builtin else f"{p.title} · 내 플레이북", p.id) for p in self.playbooks.values()]
+        return [(p.title if p.builtin else tr("{title} · 내 플레이북", title=p.title), p.id)
+                for p in self.playbooks.values()]
 
     def _model_options(self) -> list[tuple[str, str]]:
         models = set(self.config_models.values())
-        default = f"기본 {model_label(next(iter(models)))}" if len(models) == 1 else "기본 설정"
+        default = tr("기본 {model}", model=model_label(next(iter(models)))) if len(models) == 1 else tr("기본 설정")
         return [(default, CONFIG_MODEL)] + [(label, model) for model, label in MODEL_CHOICES]
 
     def _default_cap(self) -> str:
@@ -468,7 +475,7 @@ class ClaubizApp(App[None]):
         if held >= ESC_HINT_AFTER:
             remaining = ESC_HOLD_SECONDS - held
             self.query_one("#hold-hint", Static).update(
-                Text(f"Esc를 계속 누르면 종료 · {remaining:.1f}초", style=f"bold {WARNING}")
+                Text(tr("Esc를 계속 누르면 종료 · {seconds:.1f}초", seconds=remaining), style=f"bold {WARNING}")
             )
 
     def _clear_hold_hint(self) -> None:
@@ -505,7 +512,7 @@ class ClaubizApp(App[None]):
         try:
             desc = Workspace.open(name).config.description
         except WorkspaceError:
-            desc = "설정 오류"
+            desc = tr("설정 오류")
         if desc:
             text.append("\n" + _short(desc, 26), style=MUTED)
         return text
@@ -529,7 +536,8 @@ class ClaubizApp(App[None]):
 
     @on(WorkspaceList.OptionHighlighted, "#ws-list")
     def _ws_highlighted(self, event: WorkspaceList.OptionHighlighted) -> None:
-        self._select_workspace(event.option.id)
+        with suppress(NoMatches):
+            self._select_workspace(event.option.id)
 
     @on(WorkspaceList.MenuRequested)
     def _ws_menu(self, event: WorkspaceList.MenuRequested) -> None:
@@ -550,8 +558,8 @@ class ClaubizApp(App[None]):
             elif action == "delete":
                 self.action_delete_workspace(name)
 
-        items = [("지침 편집", "brief"), ("업무 프로필", "profile"), ("자료 가져오기", "import"),
-                 ("다른 영역 기록 가져오기", "runs"), ("제거", "delete")]
+        items = [(tr("지침 편집"), "brief"), (tr("업무 프로필"), "profile"), (tr("자료 가져오기"), "import"),
+                 (tr("다른 영역 기록 가져오기"), "runs"), (tr("제거"), "delete")]
         self.push_screen(ContextMenu(items, event.offset, title=name), chosen)
 
     def action_goto_ws(self, name: str, tab: str = "tab-run") -> None:
@@ -595,10 +603,10 @@ class ClaubizApp(App[None]):
         self._save_draft()
         if name is None:
             self.ws = None
-            self.query_one("#crumb", Static).update(Text("작업 영역 없음 · Ctrl+N으로 만들기", style=MUTED))
+            self.query_one("#crumb", Static).update(Text(tr("작업 영역 없음 · Ctrl+N으로 만들기"), style=MUTED))
             card = self.query_one("#ws-card", Static)
             card.border_title = ""
-            card.update(Text("왼쪽 위 '+ 새 작업 영역'으로 시작", style=MUTED))
+            card.update(Text(tr("왼쪽 위 '+ 새 작업 영역'으로 시작"), style=MUTED))
             self._restore_composer()
             self._fill_history()
             self._fill_inputs()
@@ -611,7 +619,7 @@ class ClaubizApp(App[None]):
         try:
             ws = Workspace.open(name)
         except WorkspaceError as exc:
-            self.notify(str(exc), title="작업 영역 오류", severity="error")
+            self.notify(str(exc), title=tr("작업 영역 오류"), severity="error")
             return
         self.ws = ws
         crumb = Text(ws.name, style="bold")
@@ -646,27 +654,33 @@ class ClaubizApp(App[None]):
             )
         web = cfg.web
         if web.allowed_domains:
-            source = f"허용 {len(web.allowed_domains)}개 도메인"
+            source = tr("허용 {count}개 도메인", count=len(web.allowed_domains))
         elif web.blocked_domains:
-            source = f"차단 {len(web.blocked_domains)}개 도메인"
+            source = tr("차단 {count}개 도메인", count=len(web.blocked_domains))
         else:
-            source = "제한 없음"
+            source = tr("제한 없음")
         try:
             facts = len(KnowledgeStore(ws).facts())
             specs = DigestStore(ws).load()
             pending = ActionStore(ws).pending()
         except (OSError, ValueError):
             facts, specs, pending = 0, [], 0
+        input_count = len(ws.inputs())
+        if ws.has_brief():
+            inputs_text = tr("{count}개 · 지침 있음", count=input_count)
+        else:
+            inputs_text = tr("{count}개", count=input_count)
+        enabled = sum(1 for s in specs if s.enabled)
         rows = [
-            ("범위", SCOPE_LABELS.get(cfg.scope, cfg.scope)),
-            ("유형", cfg.profile.type_label() or "미지정"),
-            ("자료", f"{len(ws.inputs())}개" + (" · 지침 있음" if ws.has_brief() else "")),
-            ("지식", f"{facts}개" if cfg.knowledge else "꺼짐"),
-            ("정기 정리", f"{len(specs)}개 · 켜짐 {sum(1 for s in specs if s.enabled)}" if specs else "없음"),
-            ("제안", f"대기 {pending}건" if cfg.actions else "꺼짐"),
-            ("실행", f"{len(runs)}회 · 완료 {completed}"),
-            ("이번 주기", f"${spent:,.2f}" + (f" / ${cfg.budget_monthly_usd:,.0f}" if cfg.budget_monthly_usd else "")),
-            ("출처", source),
+            (tr("범위"), SCOPE_LABELS.get(cfg.scope, cfg.scope)),
+            (tr("유형"), cfg.profile.type_label() or tr("미지정")),
+            (tr("자료"), inputs_text),
+            (tr("지식"), tr("{count}개", count=facts) if cfg.knowledge else tr("꺼짐")),
+            (tr("정기 정리"), tr("{count}개 · 켜짐 {enabled}", count=len(specs), enabled=enabled) if specs else tr("없음")),
+            (tr("제안"), tr("대기 {count}건", count=pending) if cfg.actions else tr("꺼짐")),
+            (tr("실행"), tr("{count}회 · 완료 {done}", count=len(runs), done=completed)),
+            (tr("이번 주기"), f"${spent:,.2f}" + (f" / ${cfg.budget_monthly_usd:,.0f}" if cfg.budget_monthly_usd else "")),
+            (tr("출처"), source),
         ]
         card = self.query_one("#ws-card", Static)
         card.border_title = cfg.name
@@ -675,11 +689,11 @@ class ClaubizApp(App[None]):
     def _run_label(self, record: dict) -> Text:
         digest = record.get("digest") or {}
         if digest:
-            return Text(f"정기 · {_short(str(digest.get('title', '')), 14)}", style=PERIWINKLE)
+            return Text(tr("정기 · {title}", title=_short(str(digest.get("title", "")), 14)), style=PERIWINKLE)
         playbook = self.playbooks.get(record.get("playbook") or "")
-        text = Text(playbook.title if playbook else "자유 목표", style="" if playbook else MUTED)
+        text = Text(playbook.title if playbook else tr("자유 목표"), style="" if playbook else MUTED)
         if record.get("mode") == "direct":
-            text.append(" · 바로", style=PERIWINKLE)
+            text.append(" · " + tr("바로"), style=PERIWINKLE)
         return text
 
     def _record_status(self, record: dict) -> str:
@@ -733,33 +747,37 @@ class ClaubizApp(App[None]):
         except NoMatches:
             return
         if run_id is None or run_id not in self.history:
-            await preview.update("실행 기록이 없습니다. 실행 탭에서 목표를 입력하고 F5로 계획하거나 F9로 바로 실행할 수 있습니다.")
+            await preview.update(tr("실행 기록이 없습니다. 실행 탭에서 목표를 입력하고 F5로 계획하거나 F9로 바로 실행할 수 "
+                                    "있습니다."))
             return
         record = self.history[run_id]
-        lines = [f"**목표**  {record.get('goal', '').strip()}", ""]
+        lines = [tr("**목표**  {goal}", goal=record.get("goal", "").strip()), ""]
         if self._record_status(record) in RESUMABLE_VIEW:
-            lines += ["> 끝나지 않은 실행임. Ctrl+Enter로 완료된 작업은 그대로 두고 남은 작업부터 재개할 수 있음", ""]
+            lines += [tr("> 끝나지 않은 실행임. Ctrl+Enter로 완료된 작업은 그대로 두고 남은 작업부터 재개할 수 있음"), ""]
         elif record.get("status") in FOLLOWABLE:
             learned = record.get("knowledge") or 0
             proposed = len(record.get("actions") or [])
-            hint = "> A로 이 보고서에 대한 행동 제안을 받을 수 있음" if not proposed else f"> 행동 제안 {proposed}건 · F10"
+            if proposed:
+                hint = tr("> 행동 제안 {count}건 · F10", count=proposed)
+            else:
+                hint = tr("> A로 이 보고서에 대한 행동 제안을 받을 수 있음")
             if learned:
-                hint += f" · 지식 {learned}개 추가됨"
+                hint += tr(" · 지식 {count}개 추가됨", count=learned)
             lines += [hint, ""]
         base = record.get("base_run")
         if base:
             parent = self.history.get(base)
-            label = _short(parent.get("goal", ""), 60) if parent else f"{base} (삭제됨)"
-            lines += [f"**이어서 한 실행**  {label}", ""]
+            label = _short(parent.get("goal", ""), 60) if parent else tr("{run} (삭제됨)", run=base)
+            lines += [tr("**이어서 한 실행**  {label}", label=label), ""]
         models = record.get("models") or {}
         if models:
             names = sorted({model_label(m) for m in models.values()})
-            lines += [f"**모델**  {', '.join(names)}", ""]
+            lines += [tr("**모델**  {models}", models=", ".join(names)), ""]
         summary = (record.get("summary") or "").strip()
-        lines += ["**요약**", "", summary or "(요약 없음)", ""]
+        lines += [tr("**요약**"), "", summary or tr("(요약 없음)"), ""]
         tasks = record.get("tasks") or []
         if tasks:
-            lines += ["**작업**", ""]
+            lines += [tr("**작업**"), ""]
             lines += [
                 f"- {t['id']} {t.get('title', '')} · {STATUS_STYLES.get(t.get('status', ''), ('', t.get('status'), ''))[1]}"
                 f" · ${t.get('cost', 0):.4f}"
@@ -788,7 +806,7 @@ class ClaubizApp(App[None]):
             return
         record = self.ws.load_run(run_id)
         if record is None:
-            self.notify("실행 기록을 읽을 수 없음", severity="warning")
+            self.notify(tr("실행 기록을 읽을 수 없음"), severity="warning")
             return
 
         def closed(result: str | None) -> None:
@@ -821,24 +839,28 @@ class ClaubizApp(App[None]):
                 f.name, Text(f.classification, style=CLASS_STYLE.get(f.classification, MUTED)), f"{f.chars:,}",
                 Text(_local_time(f.imported_at), style=MUTED), key=f.name,
             )
-        brief = Text("지침 ", style=MUTED)
+        brief = Text(tr("지침 "), style=MUTED)
         chars = len(self.ws.read_brief().strip())
-        brief.append(f"{chars:,}자" if chars else "없음")
+        brief.append(tr("{count:,}자", count=chars) if chars else tr("없음"))
         self.query_one("#brief-state", Static).update(brief)
         web = cfg.web
         domains = ", ".join(web.allowed_domains or web.blocked_domains) or "-"
-        mode = "허용 목록" if web.allowed_domains else ("차단 목록" if web.blocked_domains else "제한 없음")
+        if web.allowed_domains:
+            mode = tr("허용 목록")
+        else:
+            mode = tr("차단 목록") if web.blocked_domains else tr("제한 없음")
+        types = ", ".join(TYPE_LABELS[a] for a in cfg.actions)
         rows = [
-            ("활동 범위", SCOPE_LABELS.get(cfg.scope, cfg.scope)),
-            ("전송 허용 등급", f"{cfg.max_send_classification} 이하 (confidential은 실행마다 명시 허용)"),
-            ("개인정보 가림", "켜짐" if cfg.redact_pii else "꺼짐"),
-            ("웹 출처", f"{mode} · {domains}"),
-            ("작업당 검색/페치", f"{web.max_searches_per_task} / {web.max_fetches_per_task}"),
-            ("조사 재사용", f"{cfg.reuse_max_age_days}일 이내"),
-            ("누적 지식", "켜짐 · 출처 있는 사실만 저장" if cfg.knowledge else "꺼짐"),
-            ("행동 제안", ", ".join(TYPE_LABELS[a] for a in cfg.actions) + " · 승인해야 파일 생성"
-             if cfg.actions else "꺼짐"),
-            ("월 예산", f"${cfg.budget_monthly_usd:,.2f}" if cfg.budget_monthly_usd else "전체 예산 공유"),
+            (tr("활동 범위"), SCOPE_LABELS.get(cfg.scope, cfg.scope)),
+            (tr("전송 허용 등급"), tr("{level} 이하 (confidential은 실행마다 명시 허용)",
+                                    level=cfg.max_send_classification)),
+            (tr("개인정보 가림"), tr("켜짐") if cfg.redact_pii else tr("꺼짐")),
+            (tr("웹 출처"), f"{mode} · {domains}"),
+            (tr("작업당 검색/페치"), f"{web.max_searches_per_task} / {web.max_fetches_per_task}"),
+            (tr("조사 재사용"), tr("{days}일 이내", days=cfg.reuse_max_age_days)),
+            (tr("누적 지식"), tr("켜짐 · 출처 있는 사실만 저장") if cfg.knowledge else tr("꺼짐")),
+            (tr("행동 제안"), tr("{types} · 승인해야 파일 생성", types=types) if cfg.actions else tr("꺼짐")),
+            (tr("월 예산"), f"${cfg.budget_monthly_usd:,.2f}" if cfg.budget_monthly_usd else tr("전체 예산 공유")),
         ]
         policy.update(_kv(rows, 18))
 
@@ -854,7 +876,7 @@ class ClaubizApp(App[None]):
             task.id,
             _short(task.title, 40),
             str(info.get("effort") or task.effort),
-            f"{task.max_searches}회" if task.use_web else Text("-", style=FAINT),
+            tr("{count}회", count=task.max_searches) if task.use_web else Text("-", style=FAINT),
             status_text(info.get("status", "pending")),
             cost_cell,
         )
@@ -882,30 +904,37 @@ class ClaubizApp(App[None]):
         card.append(session.plan.title, style="bold")
         card.append("\n" + session.plan.approach, style=MUTED)
         if session.context.base:
-            card.append(f"\n↳ 이어서 작업: {_short(session.context.base['goal'], 60)}", style=PERIWINKLE)
+            card.append("\n" + tr("↳ 이어서 작업: {goal}", goal=_short(session.context.base["goal"], 60)),
+                        style=PERIWINKLE)
         if session.resumed:
             reused = len(session.prior_states)
             spent = self.runtime.ledger.spent_run(job.run_id) if self.runtime is not None else 0.0
-            card.append(f"\n재개: 완료된 작업 {reused}개는 그대로 쓰고 {len(session.plan.tasks) - reused}개 실행"
-                        f" · 이미 사용 ${spent:.3f}", style=PERIWINKLE)
-        card.append("\n예상 ", style=MUTED)
+            card.append("\n" + tr("재개: 완료된 작업 {reused}개는 그대로 쓰고 {remaining}개 실행 · 이미 사용 ${spent:.3f}",
+                                   reused=reused, remaining=len(session.plan.tasks) - reused, spent=spent),
+                        style=PERIWINKLE)
+        card.append("\n" + tr("예상") + " ", style=MUTED)
         card.append(f"${session.estimate['total']:.3f}", style=f"bold {CLAY}")
         if session.direct:
-            card.append(f"  ·  상한 ${session.run_cap:.2f}  ·  에이전트 1개, 계획과 종합 단계 없음", style=MUTED)
+            card.append(tr("  ·  상한 ${cap:.2f}  ·  에이전트 1개, 계획과 종합 단계 없음", cap=session.run_cap),
+                        style=MUTED)
         else:
-            card.append(f"  ·  상한 ${session.run_cap:.2f}  ·  계획 비용 ${session.plan_cost:.4f}"
-                        f"  ·  종합 effort {session.plan.synth_effort}", style=MUTED)
+            card.append(tr("  ·  상한 ${cap:.2f}  ·  계획 비용 ${plan:.4f}  ·  종합 effort {effort}",
+                           cap=session.run_cap, plan=session.plan_cost, effort=session.plan.synth_effort),
+                        style=MUTED)
         names = sorted({model_label(m) for m in job.orch.models_in_use().values()})
-        card.append(f"  ·  모델 {', '.join(names)}", style=MUTED)
+        card.append(tr("  ·  모델 {models}", models=", ".join(names)), style=MUTED)
         for note in session.plan_notes:
-            card.append(f"\n조정: {note}", style=WARNING)
-        kind = "재개" if session.resumed else ("바로 실행" if session.direct else "계획")
-        if job.phase == "planned":
-            title = f"{kind} · 확인 후 F6"
-        elif job.phase == "running":
-            title = f"{kind} · 실행 중"
+            card.append("\n" + tr("조정: {note}", note=note), style=WARNING)
+        if session.resumed:
+            kind = tr("재개")
         else:
-            title = f"{kind} · 종료"
+            kind = tr("바로 실행") if session.direct else tr("계획")
+        if job.phase == "planned":
+            title = tr("{kind} · 확인 후 F6", kind=kind)
+        elif job.phase == "running":
+            title = tr("{kind} · 실행 중", kind=kind)
+        else:
+            title = tr("{kind} · 종료", kind=kind)
         plan_card = self.query_one("#plan-card", Static)
         plan_card.border_title = title
         plan_card.update(card)
@@ -920,9 +949,10 @@ class ClaubizApp(App[None]):
         label, color = job.state
         elapsed = clock_text(job.elapsed(self.clock()))
         if job.phase == "running":
-            text = f"{label} · {job.done}/{job.total} · ${self._job_cost(job):.3f} · {elapsed} · Esc 중단"
+            text = tr("{label} · {done}/{total} · ${cost:.3f} · {elapsed} · Esc 중단", label=label, done=job.done,
+                      total=job.total, cost=self._job_cost(job), elapsed=elapsed)
         elif job.phase == "planning":
-            text = f"{label} · {elapsed} · Esc 중단"
+            text = tr("{label} · {elapsed} · Esc 중단", label=label, elapsed=elapsed)
         elif job.started and job.phase in FINISHED_PHASES:
             text = f"{label} · {elapsed}"
         else:
@@ -935,14 +965,14 @@ class ClaubizApp(App[None]):
         ready = self.runtime is not None
         plan_button = self.query_one("#plan", Button)
         plan_button.display = ready and phase not in ("planning", "running")
-        plan_button.label = "다시 계획  F5" if phase == "planned" else "계획  F5"
+        plan_button.label = tr("다시 계획  F5") if phase == "planned" else tr("계획  F5")
         self.query_one("#direct", Button).display = ready and phase not in ("planning", "running")
         exec_button = self.query_one("#exec", Button)
         exec_button.display = phase == "planned"
-        exec_button.label = "재개  F6" if job is not None and job.resumed else "실행  F6"
+        exec_button.label = tr("재개  F6") if job is not None and job.resumed else tr("실행  F6")
         cancel = self.query_one("#cancel", Button)
         cancel.display = phase in ("planning", "planned", "running")
-        cancel.label = "중단  Esc" if phase in ("planning", "running") else "취소  F8"
+        cancel.label = tr("중단  Esc") if phase in ("planning", "running") else tr("취소  F8")
         for button in (plan_button, exec_button, cancel):
             button.refresh(layout=True)
 
@@ -976,7 +1006,8 @@ class ClaubizApp(App[None]):
                 line += 2
             start = line
             color = CLAY if job.busy else PHASE_COLORS.get(job.phase, MUTED)
-            label = ("정기 " if job.kind == "digest" else "") + PHASE_LABELS.get(job.phase, job.phase)
+            phase_label = PHASE_LABELS.get(job.phase, job.phase)
+            label = tr("정기 {phase}", phase=phase_label) if job.kind == "digest" else phase_label
             clock = f" {clock_text(job.elapsed(now))}" if job.started else ""
             text.append("● " if job.active else "○ ", style=color)
             text.append(_fit(job.name, CARD_CELLS - 2 - cell_len(label) - cell_len(clock) - 1), style="bold underline")
@@ -993,7 +1024,7 @@ class ClaubizApp(App[None]):
                 line += 1
             targets.append((start, line, job.name, "tab-digests" if job.kind == "digest" else "tab-run"))
         card.targets = targets
-        card.border_title = "진행 중인 다른 작업"
+        card.border_title = tr("진행 중인 다른 작업")
         card.update(text)
         card.display = True
 
@@ -1027,11 +1058,11 @@ class ClaubizApp(App[None]):
         if event.kind == "llm.usage":
             job.cost += float(event.data.get("cost", 0))
         if event.kind == "synth.started":
-            job.state = ("종합 중", CLAY)
+            job.state = (tr("종합 중"), CLAY)
         elif event.kind == "knowledge.started":
-            job.state = ("지식 정리 중", CLAY)
+            job.state = (tr("지식 정리 중"), CLAY)
         elif event.kind == "actions.started":
-            job.state = ("행동 제안 정리 중", CLAY)
+            job.state = (tr("행동 제안 정리 중"), CLAY)
         if job.kind == "digest":
             with suppress(NoMatches):
                 self._paint_jobs_card()
@@ -1105,17 +1136,18 @@ class ClaubizApp(App[None]):
     def _model_changed(self, event: Select.Changed) -> None:
         value = None if event.value in (CONFIG_MODEL, Select.NULL) else str(event.value)
         self.model_pref = value
-        label = model_label(value) if value else "설정 기본값"
+        label = model_label(value) if value else tr("설정 기본값")
         job = self._job()
         if job is not None and job.busy:
             try:
                 job.orch.set_model(value, job.run_id if job.phase == "running" else None)
             except RunError as exc:
-                self.notify(str(exc), title="모델 변경 실패", severity="error")
+                self.notify(str(exc), title=tr("모델 변경 실패"), severity="error")
                 return
             job.model = value
             if job.phase != "running":
-                job.log.append(f"[{WARNING}]모델 변경: {escape(label)} (다음 호출부터 적용)[/]")
+                message = tr("모델 변경: {model} (다음 호출부터 적용)", model=escape(label))
+                job.log.append(f"[{WARNING}]{message}[/]")
             if job.phase == "planned" and job.session is not None and self.runtime is not None:
                 session = job.session
                 estimate = estimate_plan(session.plan, job.ws, job.orch.settings, self.runtime.ledger,
@@ -1125,7 +1157,8 @@ class ClaubizApp(App[None]):
                 session.estimate = finish_estimate(estimate)
             self._paint_job()
         if value == "claude-fable-5-1":
-            self.notify("Fable 5.1은 Opus 5.5보다 토큰 단가가 약 2.5배 높음", title="모델 비용", severity="warning")
+            self.notify(tr("Fable 5.1은 Opus 5.5보다 토큰 단가가 약 2.5배 높음"), title=tr("모델 비용"),
+                        severity="warning")
 
     def _update_goal_hint(self) -> None:
         value = self.query_one("#pb", Select).value
@@ -1150,7 +1183,7 @@ class ClaubizApp(App[None]):
 
     async def _generate_brief(self, **kwargs) -> tuple[str, float]:
         if self.runtime is None:
-            raise RuntimeError("런타임이 초기화되지 않음")
+            raise RuntimeError(tr("런타임이 초기화되지 않음"))
         text, cost = await generate_brief(self.runtime, **kwargs)
         self._refresh_meter()
         return text, cost
@@ -1158,7 +1191,7 @@ class ClaubizApp(App[None]):
     def action_new_workspace(self) -> None:
         def created(name: str | None) -> None:
             if name:
-                self.notify(f"작업 영역 '{name}' 생성", timeout=3)
+                self.notify(tr("작업 영역 '{name}' 생성", name=name), timeout=3)
                 self._reload_workspaces(select=name)
 
         generator = self._generate_brief if self.runtime is not None else None
@@ -1166,13 +1199,13 @@ class ClaubizApp(App[None]):
 
     def action_edit_brief(self) -> None:
         if self.ws is None:
-            self.notify("먼저 작업 영역을 선택해야 함", severity="warning")
+            self.notify(tr("먼저 작업 영역을 선택해야 함"), severity="warning")
             return
 
         def saved(chars: int | None) -> None:
             if chars is None:
                 return
-            self.notify(f"지침 저장 ({chars:,}자)" if chars else "지침 삭제됨", timeout=3)
+            self.notify(tr("지침 저장 ({count:,}자)", count=chars) if chars else tr("지침 삭제됨"), timeout=3)
             self._fill_inputs()
             self._fill_card()
 
@@ -1188,22 +1221,22 @@ class ClaubizApp(App[None]):
             select.set_options(self._playbook_options())
             if not select.disabled:
                 select.value = playbook_id
-            self.notify(f"플레이북 '{self.playbooks[playbook_id].title}' 추가", timeout=3)
+            self.notify(tr("플레이북 '{title}' 추가", title=self.playbooks[playbook_id].title), timeout=3)
 
         self.push_screen(PlaybookModal(), created)
 
     def _inputs_allowed(self) -> bool:
         if self.ws is None:
-            self.notify("먼저 작업 영역을 선택해야 함", severity="warning")
+            self.notify(tr("먼저 작업 영역을 선택해야 함"), severity="warning")
             return False
         if not scope_allows_inputs(self.ws.config.scope):
-            self.notify("이 작업 영역은 웹 전용이라 자료를 가져올 수 없음", severity="warning")
+            self.notify(tr("이 작업 영역은 웹 전용이라 자료를 가져올 수 없음"), severity="warning")
             return False
         return True
 
     def _inputs_imported(self, names: list[str] | None) -> None:
         if names:
-            self.notify(f"{len(names)}개 가져옴: {', '.join(names)}", timeout=4)
+            self.notify(tr("{count}개 가져옴: {names}", count=len(names), names=", ".join(names)), timeout=4)
             self._fill_inputs()
             self._fill_card()
 
@@ -1220,11 +1253,11 @@ class ClaubizApp(App[None]):
         if job is None or not job.busy:
             return None
         if job.phase == "planning":
-            return "계획을 세우는 중이라 자료를 제거할 수 없음. Esc로 중단한 뒤 제거해야 함"
+            return tr("계획을 세우는 중이라 자료를 제거할 수 없음. Esc로 중단한 뒤 제거해야 함")
         if job.session is not None and any(name in task.inputs for task in job.session.plan.tasks):
             if job.phase == "planned":
-                return "승인 대기 중인 계획이 이 자료를 사용함. F8로 계획을 취소한 뒤 제거해야 함"
-            return "진행 중인 실행이 이 자료를 사용함. Esc로 중단한 뒤 제거해야 함"
+                return tr("승인 대기 중인 계획이 이 자료를 사용함. F8로 계획을 취소한 뒤 제거해야 함")
+            return tr("진행 중인 실행이 이 자료를 사용함. Esc로 중단한 뒤 제거해야 함")
         return None
 
     def action_delete_input(self) -> None:
@@ -1244,9 +1277,10 @@ class ClaubizApp(App[None]):
             self.notify(blocker, severity="warning")
             return
         row = table.cursor_row
-        detail = (
-            f"'{_short(name, 40)}' ({entry.classification}, {entry.chars:,}자) 자료가 영구 삭제됨. "
-            "이 자료로 만든 보고서와 기록은 남지만, 이 자료가 필요한 중단된 실행은 재개할 수 없게 됨"
+        detail = tr(
+            "'{name}' ({classification}, {chars:,}자) 자료가 영구 삭제됨. "
+            "이 자료로 만든 보고서와 기록은 남지만, 이 자료가 필요한 중단된 실행은 재개할 수 없게 됨",
+            name=_short(name, 40), classification=entry.classification, chars=entry.chars,
         )
 
         def answered(ok: bool | None) -> None:
@@ -1259,20 +1293,20 @@ class ClaubizApp(App[None]):
             try:
                 removed = ws.remove_input(name)
             except (WorkspaceError, OSError) as exc:
-                self.notify(str(exc), title="제거 실패", severity="error")
+                self.notify(str(exc), title=tr("제거 실패"), severity="error")
                 return
             if removed:
                 self.runtime_audit(
                     "input.removed", workspace=ws.name, name=name, classification=entry.classification,
                     sha256=entry.sha256,
                 )
-                self.notify(f"자료 '{_short(name, 40)}'을 제거함", timeout=3)
+                self.notify(tr("자료 '{name}'을 제거함", name=_short(name, 40)), timeout=3)
             self._fill_inputs()
             self._fill_card()
             if table.row_count:
                 table.move_cursor(row=min(row, table.row_count - 1))
 
-        self.push_screen(ConfirmModal("정말로 제거하시겠습니까?", detail), answered)
+        self.push_screen(ConfirmModal(tr("정말로 제거하시겠습니까?"), detail), answered)
 
     def action_open_report(self) -> None:
         if self.ws is None:
@@ -1285,7 +1319,7 @@ class ClaubizApp(App[None]):
         job = self._job()
         target = job.run_id if job is not None and job.report else next(iter(self.history), None)
         if target is None:
-            self.notify("볼 실행 기록이 없음", severity="warning")
+            self.notify(tr("볼 실행 기록이 없음"), severity="warning")
             return
         self._open_run(target)
 
@@ -1295,13 +1329,13 @@ class ClaubizApp(App[None]):
         run_id = self._cursor_run()
         record = self.ws.load_run(run_id) if run_id else None
         if record is None:
-            self.notify("복사할 실행 기록이 없음", severity="warning")
+            self.notify(tr("복사할 실행 기록이 없음"), severity="warning")
             return
         self.start_export(self.ws, record)
 
     def start_export(self, ws: Workspace, record: dict) -> None:
         if not ws.report_size(record["run_id"]):
-            self.notify("이 실행에는 보고서가 없음", severity="warning")
+            self.notify(tr("이 실행에는 보고서가 없음"), severity="warning")
             return
 
         def done(path: str | None) -> None:
@@ -1309,16 +1343,16 @@ class ClaubizApp(App[None]):
                 return
             folder = str(Path(path).parent)
             self.export_dir = folder_hint(folder)
-            self.notify(path, title="보고서를 복사함", timeout=6)
+            self.notify(path, title=tr("보고서를 복사함"), timeout=6)
 
         def confirmed(ok: bool | None) -> None:
             if ok:
                 self.push_screen(ExportModal(ws, record, self.export_dir), done)
 
         if report_classification(record) == "confidential":
-            detail = ("confidential 자료 전송을 허용했던 실행의 보고서임. claubiz 밖으로 복사하면 "
-                      "작업 영역 정책과 감사 범위를 벗어나므로 보관 위치를 확인해야 함")
-            self.push_screen(ConfirmModal("기밀 자료가 담긴 보고서", detail, confirm_label="복사"), confirmed)
+            detail = tr("confidential 자료 전송을 허용했던 실행의 보고서임. claubiz 밖으로 복사하면 "
+                        "작업 영역 정책과 감사 범위를 벗어나므로 보관 위치를 확인해야 함")
+            self.push_screen(ConfirmModal(tr("기밀 자료가 담긴 보고서"), detail, confirm_label=tr("복사")), confirmed)
         else:
             confirmed(True)
 
@@ -1333,7 +1367,7 @@ class ClaubizApp(App[None]):
             bar.display = False
         else:
             title = (record.get("plan") or {}).get("title") or record.get("goal", "")
-            text = Text("↳ 이어서 작업  ", style=f"bold {PERIWINKLE}")
+            text = Text(tr("↳ 이어서 작업  "), style=f"bold {PERIWINKLE}")
             text.append(_short(title, 60))
             text.append(f"   {record.get('created', '')[:10]}", style=MUTED)
             self.query_one("#follow-text", Static).update(text)
@@ -1352,11 +1386,11 @@ class ClaubizApp(App[None]):
             self._resume(record)
             return
         if status not in FOLLOWABLE:
-            self.notify("완료된 실행은 이어서 작업하고, 중단되거나 실패한 실행은 재개할 수 있음", severity="warning")
+            self.notify(tr("완료된 실행은 이어서 작업하고, 중단되거나 실패한 실행은 재개할 수 있음"), severity="warning")
             return
         job = self._job()
         if job is not None and job.active:
-            self.notify("이 작업 영역의 진행 중인 작업이 끝난 뒤 이어서 작업할 수 있음", severity="warning")
+            self.notify(tr("이 작업 영역의 진행 중인 작업이 끝난 뒤 이어서 작업할 수 있음"), severity="warning")
             return
         draft = self._draft()
         draft.follow_run = record["run_id"]
@@ -1380,14 +1414,14 @@ class ClaubizApp(App[None]):
         run_id = record["run_id"]
         current = self.jobs.get(ws.name)
         if current is not None and current.active:
-            self.notify("이 작업 영역의 진행 중인 작업이 끝난 뒤 재개할 수 있음", severity="warning")
+            self.notify(tr("이 작업 영역의 진행 중인 작업이 끝난 뒤 재개할 수 있음"), severity="warning")
             return
         try:
             orch = self.runtime.orchestrator(ws)
             orch.set_model(self.model_pref)
             session = orch.resume(run_id)
         except (RunError, WorkspaceError, OSError) as exc:
-            self.notify(str(exc), title="재개할 수 없음", severity="warning")
+            self.notify(str(exc), title=tr("재개할 수 없음"), severity="warning")
             return
         if current is not None and current.phase == "planned" and current.session is not None:
             current.orch.cancel_planned(current.session)
@@ -1395,8 +1429,9 @@ class ClaubizApp(App[None]):
         job.load_plan(session)
         job.phase = "planned"
         reused = len(session.prior_states)
-        job.log.append(f"재개 준비: 완료된 작업 {reused}개는 그대로 쓰고 {len(session.plan.tasks) - reused}개를 실행함")
-        job.state = ("재개 대기 · F6으로 재개", CLAY)
+        job.log.append(tr("재개 준비: 완료된 작업 {reused}개는 그대로 쓰고 {remaining}개를 실행함", reused=reused,
+                          remaining=len(session.plan.tasks) - reused))
+        job.state = (tr("재개 대기 · F6으로 재개"), CLAY)
         draft = self._draft()
         draft.goal = session.goal
         draft.follow_run = None
@@ -1412,17 +1447,19 @@ class ClaubizApp(App[None]):
             return
         owner = self.runs.get(run_id)
         if owner is not None and owner.active:
-            self.notify("진행 중인 실행 기록은 제거할 수 없음", severity="warning")
+            self.notify(tr("진행 중인 실행 기록은 제거할 수 없음"), severity="warning")
             return
         record = self.history.get(run_id, {})
         ws = self.ws
         facts, actions = derived_counts(ws, run_id)
         derived = ""
         if facts or actions:
-            derived = f"이 실행에서 나온 지식 {facts}개와 행동 제안 {actions}건(만든 파일 포함)도 함께 삭제됨. "
-        detail = (
-            f"'{_short(record.get('goal', run_id), 40)}' 실행 기록과 보고서, 작업 노트가 영구 삭제됨. {derived}"
-            f"이미 쓴 비용 ${record.get('cost_total', 0):.3f}은 예산 장부에 그대로 남음"
+            derived = tr("이 실행에서 나온 지식 {facts}개와 행동 제안 {actions}건(만든 파일 포함)도 함께 삭제됨. ",
+                         facts=facts, actions=actions)
+        detail = tr(
+            "'{goal}' 실행 기록과 보고서, 작업 노트가 영구 삭제됨. {derived}"
+            "이미 쓴 비용 ${cost:.3f}은 예산 장부에 그대로 남음",
+            goal=_short(record.get("goal", run_id), 40), derived=derived, cost=record.get("cost_total", 0),
         )
 
         def answered(ok: bool | None) -> None:
@@ -1431,7 +1468,7 @@ class ClaubizApp(App[None]):
             job = self.runs.get(run_id)
             if job is not None:
                 if job.active:
-                    self.notify("진행 중인 실행 기록은 제거할 수 없음", severity="warning")
+                    self.notify(tr("진행 중인 실행 기록은 제거할 수 없음"), severity="warning")
                     return
                 if job.phase == "planned" and job.session is not None:
                     job.orch.cancel_planned(job.session)
@@ -1442,7 +1479,7 @@ class ClaubizApp(App[None]):
                 ws.delete_run(run_id)
                 removed_facts, removed_actions = purge_derived(ws, run_id)
             except (WorkspaceError, ActionError, OSError) as exc:
-                self.notify(str(exc), title="제거 실패", severity="error")
+                self.notify(str(exc), title=tr("제거 실패"), severity="error")
                 return
             self.runtime_audit("run.deleted", workspace=ws.name, run_id=run_id, knowledge=removed_facts,
                                actions=removed_actions)
@@ -1455,9 +1492,9 @@ class ClaubizApp(App[None]):
             self._fill_card()
             self._paint_job()
             self._refresh_ws_label(ws.name)
-            self.notify("실행 기록을 제거함", timeout=3)
+            self.notify(tr("실행 기록을 제거함"), timeout=3)
 
-        self.push_screen(ConfirmModal("정말로 제거하시겠습니까?", detail), answered)
+        self.push_screen(ConfirmModal(tr("정말로 제거하시겠습니까?"), detail), answered)
 
     def action_delete_workspace(self, name: str | None = None) -> None:
         option_list = self.query_one("#ws-list", WorkspaceList)
@@ -1469,16 +1506,17 @@ class ClaubizApp(App[None]):
             return
         job = self.jobs.get(name)
         if (job is not None and job.active) or self._digest_busy(name):
-            self.notify("이 작업 영역에서 작업이 진행 중이라 제거할 수 없음", severity="warning")
+            self.notify(tr("이 작업 영역에서 작업이 진행 중이라 제거할 수 없음"), severity="warning")
             return
         try:
             target = Workspace.open(name)
             inputs, runs = len(target.inputs()), len(target.recent_runs(limit=10000))
         except WorkspaceError:
             inputs, runs = 0, 0
-        detail = (
-            f"작업 영역 '{name}'의 자료 {inputs}개, 실행 기록 {runs}개, 보고서와 지침이 영구 삭제됨. "
-            "이미 쓴 비용은 예산 장부에 그대로 남음"
+        detail = tr(
+            "작업 영역 '{name}'의 자료 {inputs}개, 실행 기록 {runs}개, 보고서와 지침이 영구 삭제됨. "
+            "이미 쓴 비용은 예산 장부에 그대로 남음",
+            name=name, inputs=inputs, runs=runs,
         )
 
         def answered(ok: bool | None) -> None:
@@ -1486,13 +1524,13 @@ class ClaubizApp(App[None]):
                 return
             job = self.jobs.get(name)
             if self._digest_busy(name):
-                self.notify("이 작업 영역에서 정기 정리가 진행 중이라 제거할 수 없음", severity="warning")
+                self.notify(tr("이 작업 영역에서 정기 정리가 진행 중이라 제거할 수 없음"), severity="warning")
                 return
             for key in [k for k, j in self.digest_jobs.items() if j.name == name]:
                 self.runs.pop(self.digest_jobs.pop(key).run_id, None)
             if job is not None:
                 if job.active:
-                    self.notify("이 작업 영역에서 작업이 진행 중이라 제거할 수 없음", severity="warning")
+                    self.notify(tr("이 작업 영역에서 작업이 진행 중이라 제거할 수 없음"), severity="warning")
                     return
                 if job.phase == "planned" and job.session is not None:
                     job.orch.cancel_planned(job.session)
@@ -1504,13 +1542,13 @@ class ClaubizApp(App[None]):
             try:
                 Workspace.delete(name)
             except (WorkspaceError, OSError) as exc:
-                self.notify(str(exc), title="제거 실패", severity="error")
+                self.notify(str(exc), title=tr("제거 실패"), severity="error")
                 return
             self.runtime_audit("workspace.deleted", name=name, inputs=inputs, runs=runs)
             self._reload_workspaces()
-            self.notify(f"작업 영역 '{name}'을 제거함", timeout=3)
+            self.notify(tr("작업 영역 '{name}'을 제거함", name=name), timeout=3)
 
-        self.push_screen(ConfirmModal("정말로 제거하시겠습니까?", detail), answered)
+        self.push_screen(ConfirmModal(tr("정말로 제거하시겠습니까?"), detail), answered)
 
     def _cursor_key(self, selector: str) -> str | None:
         table = self.query_one(selector, DataTable)
@@ -1529,7 +1567,7 @@ class ClaubizApp(App[None]):
         _reset_table(table)
         self.facts_by_id = {}
         if self.ws is None:
-            table.border_title = "누적 지식"
+            table.border_title = tr("누적 지식")
             self._show_fact(None)
             return
         try:
@@ -1543,8 +1581,8 @@ class ClaubizApp(App[None]):
                 Text(fact.as_of, style=MUTED), _short(fact.topic or "-", 16), _short(fact.text, 90),
                 Text(fact.classification, style=CLASS_STYLE.get(fact.classification, MUTED)), key=fact.id,
             )
-        state = "" if self.ws.config.knowledge else " · 꺼짐 (업무 프로필에서 켜기)"
-        table.border_title = f"누적 지식 {len(facts)}개{state} · Del 제거"
+        state = "" if self.ws.config.knowledge else tr(" · 꺼짐 (업무 프로필에서 켜기)")
+        table.border_title = tr("누적 지식 {count}개{state} · Del 제거", count=len(facts), state=state)
         self._keep_cursor(table, row)
         self._show_fact(self._cursor_key("#facts"))
 
@@ -1555,13 +1593,14 @@ class ClaubizApp(App[None]):
             return
         fact = self.facts_by_id.get(fact_id or "")
         if fact is None:
-            detail.update(Text("실행이 끝나면 보고서에서 출처가 있는 사실만 골라 여기에 쌓음. 다음 실행은 이를 참고해 "
-                               "같은 조사를 반복하지 않음", style=MUTED))
+            detail.update(Text(tr("실행이 끝나면 보고서에서 출처가 있는 사실만 골라 여기에 쌓음. 다음 실행은 이를 참고해 "
+                                  "같은 조사를 반복하지 않음"), style=MUTED))
             return
         text = Text(fact.text)
         record = self.history.get(fact.run_id)
-        origin = _short(record.get("goal", ""), 40) if record else f"{fact.run_id} (기록 없음)"
-        text.append(f"\n{fact.as_of} · {' · '.join(fact.sources[:3])} · 실행: {origin}", style=MUTED)
+        origin = _short(record.get("goal", ""), 40) if record else tr("{run} (기록 없음)", run=fact.run_id)
+        text.append("\n" + tr("{date} · {sources} · 실행: {origin}", date=fact.as_of,
+                               sources=" · ".join(fact.sources[:3]), origin=origin), style=MUTED)
         detail.update(text)
 
     @on(DataTable.RowHighlighted, "#facts")
@@ -1583,26 +1622,26 @@ class ClaubizApp(App[None]):
             try:
                 removed = KnowledgeStore(ws).remove([fact.id])
             except OSError as exc:
-                self.notify(str(exc), title="제거 실패", severity="error")
+                self.notify(str(exc), title=tr("제거 실패"), severity="error")
                 return
             if removed:
                 self.runtime_audit("knowledge.removed", workspace=ws.name, ids=[fact.id], removed=removed)
             self._fill_facts()
             self._fill_card()
 
-        detail = f"'{_short(fact.text, 60)}'. 다음 실행부터 참고하지 않음"
-        self.push_screen(ConfirmModal("이 지식을 지울까요?", detail), answered)
+        detail = tr("'{text}'. 다음 실행부터 참고하지 않음", text=_short(fact.text, 60))
+        self.push_screen(ConfirmModal(tr("이 지식을 지울까요?"), detail), answered)
 
     def action_edit_profile(self) -> None:
         if self.ws is None:
-            self.notify("먼저 작업 영역을 선택해야 함", severity="warning")
+            self.notify(tr("먼저 작업 영역을 선택해야 함"), severity="warning")
             return
         ws = self.ws
 
         def saved(ok: bool | None) -> None:
             if not ok:
                 return
-            self.notify("업무 프로필 저장", timeout=3)
+            self.notify(tr("업무 프로필 저장"), timeout=3)
             if self.ws is ws:
                 self._fill_inputs()
                 self._fill_facts()
@@ -1627,11 +1666,11 @@ class ClaubizApp(App[None]):
         except ValueError:
             due = "-"
         if job is not None:
-            state = Text(f"● 실행 중 {clock_text(job.elapsed(self.clock()))}", style=CLAY)
+            state = Text(tr("● 실행 중 {elapsed}", elapsed=clock_text(job.elapsed(self.clock()))), style=CLAY)
         elif not spec.enabled:
-            state = Text("꺼짐" + (" · 연속 실패" if spec.failures >= 3 else ""), style=FAINT)
+            state = Text(tr("꺼짐 · 연속 실패") if spec.failures >= 3 else tr("꺼짐"), style=FAINT)
         else:
-            state = Text("켜짐", style=SUCCESS)
+            state = Text(tr("켜짐"), style=SUCCESS)
         status = spec.last_status
         if status == "running" and job is None and self.ws is not None:
             status = "running" if DigestStore(self.ws).is_running(spec.id) else "cancelled"
@@ -1640,7 +1679,7 @@ class ClaubizApp(App[None]):
             last = Text(f"{label} · {_local_time(spec.last_attempt)[5:]}", style=color)
         else:
             last = Text("-", style=FAINT)
-        model = model_label(spec.model) if spec.model else "기본"
+        model = model_label(spec.model) if spec.model else tr("기본")
         return (_short(spec.title, 24), spec.schedule, due, state, last, model, f"${spec.run_cap:.2f}")
 
     def _fill_digests(self) -> None:
@@ -1665,11 +1704,11 @@ class ClaubizApp(App[None]):
             self.digest_specs[spec.id] = spec
             table.add_row(*self._digest_row(spec), key=spec.id)
         if not allowed:
-            agent.update(Text("자료 전용 작업 영역이라 정기 정리를 쓸 수 없음", style=MUTED))
+            agent.update(Text(tr("자료 전용 작업 영역이라 정기 정리를 쓸 수 없음"), style=MUTED))
         elif registration_path().is_file():
-            agent.update(Text("백그라운드 실행 등록됨 · TUI를 닫아도 실행", style=SUCCESS))
+            agent.update(Text(tr("백그라운드 실행 등록됨 · TUI를 닫아도 실행"), style=SUCCESS))
         else:
-            agent.update(Text("TUI 실행 중에만 동작 · 상시 실행: claubiz agent install", style=MUTED))
+            agent.update(Text(tr("TUI 실행 중에만 동작 · 상시 실행: claubiz agent install"), style=MUTED))
         self._keep_cursor(table, row)
         self.call_later(self._show_digest_preview, self._cursor_key("#digests"))
 
@@ -1689,18 +1728,19 @@ class ClaubizApp(App[None]):
             return
         spec = self.digest_specs.get(digest_id or "")
         if spec is None or self.ws is None:
-            await preview.update(
+            await preview.update(tr(
                 "정기 정리가 없습니다. '+ 새 정기 정리'로 요청과 일정을 정하면 그때마다 에이전트 하나가 지난 실행 이후의 "
                 "새 소식만 찾아 정리합니다. 이미 보고한 링크는 건너뛰어 토큰을 아낍니다."
-            )
+            ))
             return
-        model = model_label(spec.model) if spec.model else "설정 기본값"
-        lines = [f"**요청**  {spec.request}", "",
-                 (f"**일정**  {spec.schedule} · 모델 {model} · 검색 {spec.max_searches}회 · 상한 ${spec.run_cap:.2f}"
-                 f" · 보고한 링크 {len(spec.seen_urls)}개 기억")]
+        model = model_label(spec.model) if spec.model else tr("설정 기본값")
+        lines = [tr("**요청**  {request}", request=spec.request), "",
+                 tr("**일정**  {schedule} · 모델 {model} · 검색 {searches}회 · 상한 ${cap:.2f}"
+                    " · 보고한 링크 {links}개 기억", schedule=spec.schedule, model=model,
+                    searches=spec.max_searches, cap=spec.run_cap, links=len(spec.seen_urls))]
         runs = [r for r in self.history.values() if (r.get("digest") or {}).get("id") == spec.id][:5]
         if runs:
-            lines += ["", "**최근 실행**", ""]
+            lines += ["", tr("**최근 실행**"), ""]
             lines += [f"- {_local_time(r.get('created', ''))} · "
                       f"{STATUS_STYLES.get(self._record_status(r), ('', r.get('status'), ''))[1]}"
                       f" · ${r.get('cost_total', 0):.3f}" for r in runs]
@@ -1736,16 +1776,17 @@ class ClaubizApp(App[None]):
                 table.move_cursor(row=table.get_row_index(digest_id))
             spec = self.digest_specs.get(digest_id)
             if spec is not None:
-                self.notify(f"{spec.title} · {spec.schedule} · 다음 실행 {spec.next_due():%m-%d %H:%M}", timeout=4)
+                self.notify(tr("{title} · {schedule} · 다음 실행 {due}", title=spec.title, schedule=spec.schedule,
+                               due=spec.next_due().strftime("%m-%d %H:%M")), timeout=4)
 
         return saved
 
     def action_new_digest(self) -> None:
         if self.ws is None:
-            self.notify("먼저 작업 영역을 선택해야 함", severity="warning")
+            self.notify(tr("먼저 작업 영역을 선택해야 함"), severity="warning")
             return
         if not scope_allows_web(self.ws.config.scope):
-            self.notify("자료 전용 작업 영역은 정기 정리를 쓸 수 없음", severity="warning")
+            self.notify(tr("자료 전용 작업 영역은 정기 정리를 쓸 수 없음"), severity="warning")
             return
         self.push_screen(DigestModal(self.ws), self._digest_saved(self.ws))
 
@@ -1769,7 +1810,7 @@ class ClaubizApp(App[None]):
         try:
             DigestStore(self.ws).update(spec.id, **changes)
         except (DigestError, OSError, ValueError) as exc:
-            self.notify(str(exc), title="변경 실패", severity="error")
+            self.notify(str(exc), title=tr("변경 실패"), severity="error")
             return
         self.runtime_audit("digest.updated", workspace=self.ws.name, digest_id=spec.id, enabled=enabled)
         self._fill_digests()
@@ -1787,19 +1828,19 @@ class ClaubizApp(App[None]):
             if not ok or self.ws is not ws:
                 return
             if self._digest_job(spec.id) is not None or DigestStore(ws).is_running(spec.id):
-                self.notify("실행 중인 정기 정리는 제거할 수 없음", severity="warning")
+                self.notify(tr("실행 중인 정기 정리는 제거할 수 없음"), severity="warning")
                 return
             try:
                 DigestStore(ws).remove(spec.id)
             except (DigestError, OSError) as exc:
-                self.notify(str(exc), title="제거 실패", severity="error")
+                self.notify(str(exc), title=tr("제거 실패"), severity="error")
                 return
             self.runtime_audit("digest.removed", workspace=ws.name, digest_id=spec.id)
             self._fill_digests()
             self._fill_card()
 
-        detail = f"'{spec.title}' 일정이 삭제됨. 이미 만든 정리 보고서는 기록 탭에 그대로 남음"
-        self.push_screen(ConfirmModal("정기 정리를 제거할까요?", detail), answered)
+        detail = tr("'{title}' 일정이 삭제됨. 이미 만든 정리 보고서는 기록 탭에 그대로 남음", title=spec.title)
+        self.push_screen(ConfirmModal(tr("정기 정리를 제거할까요?"), detail), answered)
 
     def action_run_digest(self) -> None:
         if self.ws is None or self.runtime is None:
@@ -1808,11 +1849,11 @@ class ClaubizApp(App[None]):
         if spec is None:
             return
         if self._digest_job(spec.id) is not None:
-            self.notify("이미 실행 중임", severity="warning")
+            self.notify(tr("이미 실행 중임"), severity="warning")
             return
         claim = DigestStore(self.ws).claim(spec.id, self.now(), force=True)
         if claim is None:
-            self.notify("이 정기 정리는 다른 곳(백그라운드 실행 등)에서 실행 중임", severity="warning")
+            self.notify(tr("이 정기 정리는 다른 곳(백그라운드 실행 등)에서 실행 중임"), severity="warning")
             return
         self._launch_digest(self.ws, spec, claim)
 
@@ -1842,7 +1883,7 @@ class ClaubizApp(App[None]):
             orch, session = start_digest(self.runtime, ws, spec, claim)
         except Exception as exc:
             finish_digest(self.runtime, ws, claim, "", "failed")
-            self.notify(f"{ws.name} · {spec.title}: {str(exc)[:160]}", title="정기 정리 실패", severity="error")
+            self.notify(f"{ws.name} · {spec.title}: {str(exc)[:160]}", title=tr("정기 정리 실패"), severity="error")
             with suppress(NoMatches):
                 if self.ws is not None and self.ws.name == ws.name:
                     self._fill_digests()
@@ -1852,8 +1893,9 @@ class ClaubizApp(App[None]):
         job.load_plan(session)
         job.phase = "running"
         job.started = self.clock()
-        job.state = ("정기 정리 실행 중", CLAY)
-        job.log.append(f"정기 정리 '{escape(spec.title)}' 시작 ({escape(spec.schedule)})")
+        job.state = (tr("정기 정리 실행 중"), CLAY)
+        job.log.append(tr("정기 정리 '{title}' 시작 ({schedule})", title=escape(spec.title),
+                          schedule=escape(spec.schedule)))
         old = self.digest_jobs.get(job.key)
         if old is not None:
             self.runs.pop(old.run_id, None)
@@ -1878,8 +1920,8 @@ class ClaubizApp(App[None]):
             job.report = report_path is not None
             job.cost = outcome.cost
             label = PHASE_LABELS.get(outcome.status, outcome.status)
-            extra = f" · 제안 {len(outcome.proposed)}건 F10" if outcome.proposed else ""
-            self.notify(f"{job.name} · {job.goal} · {label} · ${outcome.cost:.4f}{extra}", title="정기 정리 완료",
+            extra = tr(" · 제안 {count}건 F10", count=len(outcome.proposed)) if outcome.proposed else ""
+            self.notify(f"{job.name} · {job.goal} · {label} · ${outcome.cost:.4f}{extra}", title=tr("정기 정리 완료"),
                         timeout=8)
         except asyncio.CancelledError:
             record = job.ws.load_run(job.run_id) or {}
@@ -1888,13 +1930,15 @@ class ClaubizApp(App[None]):
             raise
         except Exception as exc:
             job.phase = "error"
-            job.log.append(f"[{ERROR}]정기 정리 오류: {escape(str(exc))}[/]")
-            self.notify(f"{job.name} · {job.goal}: {str(exc)[:160]}", title="정기 정리 실패", severity="error")
+            message = tr("정기 정리 오류: {error}", error=escape(str(exc)))
+            job.log.append(f"[{ERROR}]{message}[/]")
+            self.notify(f"{job.name} · {job.goal}: {str(exc)[:160]}", title=tr("정기 정리 실패"), severity="error")
         finally:
             job.finished = self.clock()
             spec = finish_digest(self.runtime, job.ws, claim, job.run_id, status, report_path)
             if spec is not None and not spec.enabled and status not in FOLLOWABLE:
-                self.notify(f"{job.name} · {job.goal}: 연속 실패로 꺼둠, 정기 정리 탭에서 확인", severity="warning")
+                self.notify(tr("{name} · {goal}: 연속 실패로 꺼둠, 정기 정리 탭에서 확인", name=job.name, goal=job.goal),
+                            severity="warning")
             with suppress(NoMatches):
                 self._refresh_meter()
                 if self._is_selected(job):
@@ -1927,9 +1971,9 @@ class ClaubizApp(App[None]):
                 )
         with suppress(NoMatches, KeyError, AttributeError):
             tab = self.query_one("#tabs", TabbedContent).get_tab("tab-actions")
-            tab.label = f"제안 {pending}" if pending else "제안"
-        state = "" if self.ws is None or self.ws.config.actions else " · 꺼짐 (업무 프로필에서 켜기)"
-        table.border_title = f"행동 제안{state} · Y 승인 · N 거절 · O 열기 · C 복사 · Del 제거"
+            tab.label = tr("제안 {count}", count=pending) if pending else tr("제안")
+        state = "" if self.ws is None or self.ws.config.actions else tr(" · 꺼짐 (업무 프로필에서 켜기)")
+        table.border_title = tr("행동 제안{state} · Y 승인 · N 거절 · O 열기 · C 복사 · Del 제거", state=state)
         self._keep_cursor(table, row)
         self.call_later(self._show_action_preview, self._cursor_key("#action-list"))
 
@@ -1940,23 +1984,24 @@ class ClaubizApp(App[None]):
             return
         action = self.action_items.get(action_id or "")
         if action is None:
-            await preview.update(
+            await preview.update(tr(
                 "제안이 없습니다. 실행이 끝나면 보고서를 바탕으로 메일 초안, 일정, 표, 문서를 제안합니다. 승인해야만 작업 영역 "
                 "outbox에 파일이 만들어지고, 메일은 보내지 않고 초안만 만듭니다. 기록 탭에서 A로 지난 실행에 대한 제안도 "
                 "받을 수 있습니다."
-            )
+            ))
             return
         try:
             body = preview_markdown(action)
         except ValueError as exc:
-            body = f"제안 내용이 올바르지 않음: {exc}"
+            body = tr("제안 내용이 올바르지 않음: {error}", error=exc)
         record = self.history.get(action.run_id)
         origin = _short(record.get("goal", ""), 60) if record else action.run_id
-        notes = [f"> 출처 실행: {origin} · 등급 {action.classification}"]
+        notes = [tr("> 출처 실행: {origin} · 등급 {classification}", origin=origin,
+                    classification=action.classification)]
         if action.status == "pending":
-            notes.append("> Y로 승인하면 작업 영역 outbox에 파일을 만듦. 보내거나 등록하지 않으며 O로 열어 직접 처리")
+            notes.append(tr("> Y로 승인하면 작업 영역 outbox에 파일을 만듦. 보내거나 등록하지 않으며 O로 열어 직접 처리"))
         elif action.status == "done":
-            notes.append(f"> 파일: outbox/{action.output} · O로 열기 · C로 다른 폴더에 복사")
+            notes.append(tr("> 파일: outbox/{output} · O로 열기 · C로 다른 폴더에 복사", output=action.output))
         await preview.update("\n\n".join(notes) + "\n\n" + body)
 
     @on(DataTable.RowHighlighted, "#action-list")
@@ -1975,8 +2020,8 @@ class ClaubizApp(App[None]):
             if ok:
                 then()
 
-        detail = "confidential 자료로 만든 제안임. 파일을 다루기 전에 보관 위치와 공유 대상을 확인해야 함"
-        self.push_screen(ConfirmModal("기밀 등급 제안", detail, confirm_label=verb), answered)
+        detail = tr("confidential 자료로 만든 제안임. 파일을 다루기 전에 보관 위치와 공유 대상을 확인해야 함")
+        self.push_screen(ConfirmModal(tr("기밀 등급 제안"), detail, confirm_label=verb), answered)
 
     def action_approve_action(self) -> None:
         action = self._cursor_action()
@@ -1988,16 +2033,16 @@ class ClaubizApp(App[None]):
             try:
                 done = ActionStore(ws).approve(action.id)
             except (ActionError, OSError) as exc:
-                self.notify(str(exc), title="승인 실패", severity="error")
+                self.notify(str(exc), title=tr("승인 실패"), severity="error")
                 return
             self.runtime_audit("action.approved", workspace=ws.name, action_id=done.id, type=done.type,
                                output=done.output, sha256=done.sha256, classification=done.classification)
-            self.notify(f"만듦: {done.output} · O로 열기", title="제안 승인", timeout=5)
+            self.notify(tr("만듦: {output} · O로 열기", output=done.output), title=tr("제안 승인"), timeout=5)
             if self.ws is ws:
                 self._fill_actions()
                 self._fill_card()
 
-        self._confirm_confidential(action, "만들기", approve)
+        self._confirm_confidential(action, tr("만들기"), approve)
 
     def action_reject_action(self) -> None:
         action = self._cursor_action()
@@ -2006,7 +2051,7 @@ class ClaubizApp(App[None]):
         try:
             ActionStore(self.ws).reject(action.id)
         except (ActionError, OSError) as exc:
-            self.notify(str(exc), title="거절 실패", severity="error")
+            self.notify(str(exc), title=tr("거절 실패"), severity="error")
             return
         self.runtime_audit("action.rejected", workspace=self.ws.name, action_id=action.id)
         self._fill_actions()
@@ -2017,7 +2062,7 @@ class ClaubizApp(App[None]):
         if self.ws is None or action is None:
             return
         if action.status != "done":
-            self.notify("Y로 승인해 파일을 만든 뒤 열 수 있음", severity="warning")
+            self.notify(tr("Y로 승인해 파일을 만든 뒤 열 수 있음"), severity="warning")
             return
         ws = self.ws
 
@@ -2025,19 +2070,19 @@ class ClaubizApp(App[None]):
             try:
                 path = ActionStore(ws).open_output(action.id)
             except (ActionError, OSError, ValueError) as exc:
-                self.notify(str(exc), title="열기 실패", severity="error")
+                self.notify(str(exc), title=tr("열기 실패"), severity="error")
                 return
             self.runtime_audit("action.opened", workspace=ws.name, action_id=action.id, output=path.name)
-            self.notify(path.name, title="기본 앱으로 열기", timeout=3)
+            self.notify(path.name, title=tr("기본 앱으로 열기"), timeout=3)
 
-        self._confirm_confidential(action, "열기", open_file)
+        self._confirm_confidential(action, tr("열기"), open_file)
 
     def action_export_action(self) -> None:
         action = self._cursor_action()
         if self.ws is None or action is None:
             return
         if action.status != "done":
-            self.notify("Y로 승인해 파일을 만든 뒤 복사할 수 있음", severity="warning")
+            self.notify(tr("Y로 승인해 파일을 만든 뒤 복사할 수 있음"), severity="warning")
             return
         ws = self.ws
 
@@ -2046,11 +2091,11 @@ class ClaubizApp(App[None]):
                 return
             folder = str(Path(path).parent)
             self.export_dir = folder_hint(folder)
-            self.notify(path, title="파일을 복사함", timeout=6)
+            self.notify(path, title=tr("파일을 복사함"), timeout=6)
 
         self._confirm_confidential(
-            action, "복사", lambda: self.push_screen(ActionExportModal(ws, action.id, action.output, self.export_dir),
-                                                    done),
+            action, tr("복사"), lambda: self.push_screen(ActionExportModal(ws, action.id, action.output,
+                                                                        self.export_dir), done),
         )
 
     def action_delete_action(self) -> None:
@@ -2065,14 +2110,14 @@ class ClaubizApp(App[None]):
             try:
                 ActionStore(ws).remove(action.id)
             except (ActionError, OSError) as exc:
-                self.notify(str(exc), title="제거 실패", severity="error")
+                self.notify(str(exc), title=tr("제거 실패"), severity="error")
                 return
             self.runtime_audit("action.deleted", workspace=ws.name, action_id=action.id, output=action.output)
             self._fill_actions()
             self._fill_card()
 
-        extra = f" outbox의 '{action.output}' 파일도 함께 삭제됨" if action.output else ""
-        self.push_screen(ConfirmModal("제안을 제거할까요?", f"'{_short(action.title, 50)}'.{extra}"), answered)
+        extra = tr(" outbox의 '{output}' 파일도 함께 삭제됨", output=action.output) if action.output else ""
+        self.push_screen(ConfirmModal(tr("제안을 제거할까요?"), f"'{_short(action.title, 50)}'.{extra}"), answered)
 
     def action_propose_actions(self) -> None:
         if self.ws is None or self.runtime is None:
@@ -2080,12 +2125,12 @@ class ClaubizApp(App[None]):
         run_id = self._cursor_run()
         record = self.history.get(run_id or "")
         if record is None or record.get("status") not in FOLLOWABLE or not self.ws.report_size(run_id):
-            self.notify("보고서가 있는 완료된 실행에서만 제안을 받을 수 있음", severity="warning")
+            self.notify(tr("보고서가 있는 완료된 실행에서만 제안을 받을 수 있음"), severity="warning")
             return
         if not self.ws.config.actions:
-            self.notify("이 작업 영역은 행동 제안이 꺼져 있음 (업무 프로필에서 켜기)", severity="warning")
+            self.notify(tr("이 작업 영역은 행동 제안이 꺼져 있음 (업무 프로필에서 켜기)"), severity="warning")
             return
-        self.notify("행동 제안을 정리하는 중", timeout=3)
+        self.notify(tr("행동 제안을 정리하는 중"), timeout=3)
         self.run_worker(self._do_propose(self.ws, run_id), group=f"propose:{self.ws.name}", exclusive=True,
                         exit_on_error=False)
 
@@ -2094,12 +2139,12 @@ class ClaubizApp(App[None]):
         try:
             ids = await orch.propose_actions(run_id)
         except Exception as exc:
-            self.notify(str(exc)[:200], title="행동 제안 실패", severity="error")
+            self.notify(str(exc)[:200], title=tr("행동 제안 실패"), severity="error")
             return
         finally:
             self._refresh_meter()
-        self.notify(f"제안 {len(ids)}건 · F10에서 확인" if ids else "이 보고서에서는 제안할 행동이 없음",
-                    title="행동 제안", timeout=5)
+        self.notify(tr("제안 {count}건 · F10에서 확인", count=len(ids)) if ids else tr("이 보고서에서는 제안할 행동이 없음"),
+                    title=tr("행동 제안"), timeout=5)
         with suppress(NoMatches):
             if self.ws is not None and self.ws.name == ws.name:
                 self._fill_actions()
@@ -2118,14 +2163,14 @@ class ClaubizApp(App[None]):
         if self.runtime is None:
             return None
         if self.ws is None:
-            self.notify("작업 영역을 먼저 선택하거나 만들어야 함 (Ctrl+N)", severity="warning")
+            self.notify(tr("작업 영역을 먼저 선택하거나 만들어야 함 (Ctrl+N)"), severity="warning")
             return None
         job = self._job()
         if job is not None and job.active:
             return None
         goal = self.query_one("#goal", TextArea).text.strip()
         if not goal:
-            self.notify("목표를 입력해야 함", severity="warning")
+            self.notify(tr("목표를 입력해야 함"), severity="warning")
             self.query_one("#goal", TextArea).focus()
             return None
         playbook = self.query_one("#pb", Select).value
@@ -2133,7 +2178,7 @@ class ClaubizApp(App[None]):
         try:
             cap = float(self.query_one("#cap", Input).value or self.runtime.settings.budget.run_default_usd)
         except ValueError:
-            self.notify("실행 예산은 숫자여야 함", severity="warning")
+            self.notify(tr("실행 예산은 숫자여야 함"), severity="warning")
             return None
         return goal, playbook_id, cap
 
@@ -2156,7 +2201,7 @@ class ClaubizApp(App[None]):
         try:
             orch.set_model(self.model_pref)
         except RunError as exc:
-            self.notify(str(exc), title="모델 오류", severity="error")
+            self.notify(str(exc), title=tr("모델 오류"), severity="error")
             return None
         current = self._job()
         if current is not None and current.phase == "planned" and current.session is not None:
@@ -2172,7 +2217,7 @@ class ClaubizApp(App[None]):
         job, (goal, playbook_id, cap) = prepared
         job.phase = "planning"
         job.started = self.clock()
-        job.state = ("계획 수립 중…", CLAY)
+        job.state = (tr("계획 수립 중…"), CLAY)
         self.action_show_tab("tab-run")
         self._job_changed(job)
         job.worker = self.run_worker(self._do_plan(job, goal, playbook_id, cap, self.follow_run),
@@ -2182,11 +2227,12 @@ class ClaubizApp(App[None]):
         try:
             session = await job.orch.plan(goal, playbook_id, cap, base_run_id=base_run, run_id=job.run_id)
         except Exception as exc:
-            job.log.append(f"[{ERROR}]계획 실패: {escape(str(exc))}[/]")
-            self.notify(str(exc)[:200], title=f"계획 실패 · {job.name}", severity="error")
+            message = tr("계획 실패: {error}", error=escape(str(exc)))
+            job.log.append(f"[{ERROR}]{message}[/]")
+            self.notify(str(exc)[:200], title=tr("계획 실패 · {name}", name=job.name), severity="error")
             job.phase = "error"
             job.finished = self.clock()
-            job.state = ("계획 실패", ERROR)
+            job.state = (tr("계획 실패"), ERROR)
             self._job_changed(job)
             return
         finally:
@@ -2194,11 +2240,12 @@ class ClaubizApp(App[None]):
         job.load_plan(session)
         job.phase = "planned"
         job.finished = self.clock()
-        job.state = ("승인 대기 · F6으로 실행", CLAY)
+        job.state = (tr("승인 대기 · F6으로 실행"), CLAY)
         if self._is_selected(job):
             self._fill_history()
         else:
-            self.notify(f"{job.name} · 계획 완료, 그 작업 영역에서 F6으로 실행", title="계획 완료", timeout=6)
+            self.notify(tr("{name} · 계획 완료, 그 작업 영역에서 F6으로 실행", name=job.name), title=tr("계획 완료"),
+                        timeout=6)
         self._job_changed(job)
 
     def action_direct(self) -> None:
@@ -2209,10 +2256,11 @@ class ClaubizApp(App[None]):
         try:
             session = job.orch.direct(goal, playbook_id, cap, base_run_id=self.follow_run, run_id=job.run_id)
         except Exception as exc:
-            self.notify(str(exc)[:200], title="바로 실행 실패", severity="error")
-            job.log.append(f"[{ERROR}]바로 실행 실패: {escape(str(exc))}[/]")
+            self.notify(str(exc)[:200], title=tr("바로 실행 실패"), severity="error")
+            message = tr("바로 실행 실패: {error}", error=escape(str(exc)))
+            job.log.append(f"[{ERROR}]{message}[/]")
             job.phase = "error"
-            job.state = ("바로 실행 실패", ERROR)
+            job.state = (tr("바로 실행 실패"), ERROR)
             self._job_changed(job)
             return
         job.load_plan(session)
@@ -2231,7 +2279,7 @@ class ClaubizApp(App[None]):
         job.phase = "running"
         job.started = self.clock()
         job.finished = None
-        job.state = ("실행 중", CLAY)
+        job.state = (tr("실행 중"), CLAY)
         draft = self.drafts.get(job.name)
         if draft is not None:
             draft.follow_run = None
@@ -2250,15 +2298,16 @@ class ClaubizApp(App[None]):
             if record.get("status") in RECORD_FOLLOWABLE:
                 job.phase = str(record["status"])
                 job.report = True
-                job.state = ("완료 · 후속 정리 중단", WARNING)
+                job.state = (tr("완료 · 후속 정리 중단"), WARNING)
             else:
                 job.phase = "cancelled"
-                job.state = ("중단됨 · 기록 탭에서 Ctrl+Enter로 재개", WARNING)
+                job.state = (tr("중단됨 · 기록 탭에서 Ctrl+Enter로 재개"), WARNING)
             raise
         except Exception as exc:
-            job.log.append(f"[{ERROR}]실행 오류: {escape(str(exc))}[/]")
+            message = tr("실행 오류: {error}", error=escape(str(exc)))
+            job.log.append(f"[{ERROR}]{message}[/]")
             job.phase = "error"
-            job.state = ("실행 오류", ERROR)
+            job.state = (tr("실행 오류"), ERROR)
         else:
             for warning in outcome.warnings:
                 job.log.append(f"[{WARNING}]{escape(warning)}[/]")
@@ -2266,13 +2315,14 @@ class ClaubizApp(App[None]):
             job.report = outcome.report_path is not None
             job.cost = outcome.cost
             label = PHASE_LABELS.get(outcome.status, outcome.status)
-            job.state = (f"종료 · {label} · ${outcome.cost:.4f}", PHASE_COLORS.get(outcome.status, CLAY))
+            job.state = (tr("종료 · {label} · ${cost:.4f}", label=label, cost=outcome.cost),
+                         PHASE_COLORS.get(outcome.status, CLAY))
             if outcome.report_path:
-                extra = f" · 제안 {len(outcome.proposed)}건 F10" if outcome.proposed else ""
-                self.notify(f"{job.name} · {label} · ${outcome.cost:.4f} · F7로 보고서 보기{extra}",
-                            title="실행 완료", timeout=8)
+                extra = tr(" · 제안 {count}건 F10", count=len(outcome.proposed)) if outcome.proposed else ""
+                self.notify(tr("{name} · {label} · ${cost:.4f} · F7로 보고서 보기{extra}", name=job.name, label=label,
+                               cost=outcome.cost, extra=extra), title=tr("실행 완료"), timeout=8)
             else:
-                self.notify(f"{job.name} · {label}", title="실행 종료", severity="warning", timeout=8)
+                self.notify(f"{job.name} · {label}", title=tr("실행 종료"), severity="warning", timeout=8)
         finally:
             job.finished = self.clock()
             job.seen = self._is_selected(job)
@@ -2291,8 +2341,8 @@ class ClaubizApp(App[None]):
             return
         if job.phase == "running" and job.worker is not None:
             job.worker.cancel()
-            job.log.append(f"[{WARNING}]실행 중단 요청됨[/]")
-            job.state = ("중단 중…", WARNING)
+            job.log.append(f"[{WARNING}]{tr('실행 중단 요청됨')}[/]")
+            job.state = (tr("중단 중…"), WARNING)
             self.query_one("#log", ActivityLog).sync()
             self._paint_state()
             return
@@ -2300,14 +2350,14 @@ class ClaubizApp(App[None]):
             job.worker.cancel()
             job.phase = "stopped"
             job.finished = self.clock()
-            job.state = ("계획을 중단함", WARNING)
-            job.log.append(f"[{WARNING}]계획 수립 중단됨[/]")
+            job.state = (tr("계획을 중단함"), WARNING)
+            job.log.append(f"[{WARNING}]{tr('계획 수립 중단됨')}[/]")
             self._job_changed(job)
             return
         if job.phase == "planned" and job.session is not None:
             job.orch.cancel_planned(job.session)
             job.phase = "rejected"
-            job.state = ("재개를 취소함" if job.resumed else "계획을 취소함", MUTED)
+            job.state = (tr("재개를 취소함") if job.resumed else tr("계획을 취소함"), MUTED)
             self._fill_history()
             self._job_changed(job)
             self.notify(job.state[0], timeout=3)
