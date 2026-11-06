@@ -10,6 +10,7 @@ from pathlib import Path
 LANG_ENV = "CLAUBIZ_LANG"
 SUPPORTED = ("ko", "en")
 DEFAULT = "ko"
+FALLBACK = "en"
 OUTPUT_LANGUAGES = {"ko": "Korean", "en": "English"}
 MAX_CONFIG_BYTES = 256 * 1024
 CONTEXT = "\x04"
@@ -22,22 +23,32 @@ def normalize(value: object) -> str | None:
     return code if code in SUPPORTED else None
 
 
-def _config_file() -> Path:
+def _config_file() -> Path | None:
     raw = os.environ.get("CLAUBIZ_HOME", "").strip()
     base = Path(raw).expanduser() if raw else Path.home() / ".claubiz"
+    if not base.is_absolute() or "\x00" in raw:
+        return None
     return base / "config.toml"
 
 
 def _config_language() -> tuple[bool, str | None]:
+    from .paths import read_bytes_nofollow
+
     path = _config_file()
+    if path is None:
+        return False, None
     try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_CONFIG_BYTES:
-            return False, None
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        data = tomllib.loads(read_bytes_nofollow(path, MAX_CONFIG_BYTES).decode("utf-8"))
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return False, None
     ui = data.get("ui")
     return True, normalize(ui.get("language")) if isinstance(ui, dict) else None
+
+
+def detected(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return normalize(value) or FALLBACK
 
 
 def _macos_language() -> str | None:
@@ -47,7 +58,7 @@ def _macos_language() -> str | None:
             languages = plistlib.load(handle).get("AppleLanguages") or []
     except (OSError, plistlib.InvalidFileException, ValueError):
         return None
-    return normalize(languages[0]) if languages else None
+    return detected(languages[0]) if languages else None
 
 
 def _windows_language() -> str | None:
@@ -58,7 +69,7 @@ def _windows_language() -> str | None:
         length = ctypes.WinDLL("kernel32").GetUserDefaultLocaleName(buffer, len(buffer))
     except (AttributeError, OSError):
         return None
-    return normalize(buffer.value) if length else None
+    return detected(buffer.value) if length else None
 
 
 def system_language() -> str | None:
@@ -71,7 +82,7 @@ def system_language() -> str | None:
     for name in ("LC_ALL", "LC_MESSAGES", "LANG"):
         value = os.environ.get(name, "")
         if value and value not in ("C", "POSIX") and not value.startswith("C."):
-            return normalize(value)
+            return detected(value)
     return None
 
 

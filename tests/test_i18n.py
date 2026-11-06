@@ -1,4 +1,5 @@
 import os
+import sys
 
 import pytest
 
@@ -50,6 +51,32 @@ def test_english_schedule_syntax(text, expected):
 def test_weekly_needs_days(text):
     with pytest.raises(ScheduleError):
         parse_schedule(text)
+
+
+def test_unsupported_system_locale_falls_back_to_english(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("LC_ALL", raising=False)
+    monkeypatch.delenv("LC_MESSAGES", raising=False)
+    for value, expected in (("de_DE.UTF-8", "en"), ("ko_KR.UTF-8", "ko"), ("en_US", "en"), ("C.UTF-8", None)):
+        monkeypatch.setenv("LANG", value)
+        assert i18n.system_language() == expected
+
+
+def test_config_language_needs_safe_absolute_home(monkeypatch, tmp_path):
+    (tmp_path / "config.toml").write_text('[ui]\nlanguage = "en"\n', encoding="utf-8")
+    monkeypatch.setenv("CLAUBIZ_HOME", str(tmp_path))
+    assert i18n._config_language() == (True, "en")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLAUBIZ_HOME", ".")
+    assert i18n._config_language() == (False, None)
+    linked = tmp_path / "linked"
+    linked.mkdir()
+    try:
+        (linked / "config.toml").symlink_to(tmp_path / "config.toml")
+    except OSError:
+        pytest.skip("symlink not available")
+    monkeypatch.setenv("CLAUBIZ_HOME", str(linked))
+    assert i18n._config_language() == (False, None)
 
 
 def test_preload_reads_only_leading_global_options(monkeypatch):
