@@ -483,6 +483,7 @@ if ($Help) {
 try {
     Invoke-ClaubizSetup -PrefixPath $Prefix -SourceValue $Source -SkipPath $NoModifyPath.IsPresent `
         -Remove $Uninstall.IsPresent -Elevated $AllowElevated.IsPresent
+    $global:LASTEXITCODE = 0
 } catch {
     if ($PSCommandPath) {
         Write-Host $_.Exception.Message -ForegroundColor Red
