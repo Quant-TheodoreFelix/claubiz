@@ -13,8 +13,8 @@ release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(release)
 
 
-def fake_wheel(folder: Path, extra: str = "") -> Path:
-    path = folder / "claubiz-0.1.0-py3-none-any.whl"
+def fake_wheel(folder: Path, extra: str = "", version: str = "0.1.0") -> Path:
+    path = folder / f"claubiz-{version}-py3-none-any.whl"
     with zipfile.ZipFile(path, "w") as archive:
         for entry in release.REQUIRED_ENTRIES:
             archive.writestr(entry, f"# {entry}{extra}\n")
@@ -62,7 +62,8 @@ def test_wheel_content_checks(tmp_path):
 def test_build_release_layout_and_immutability(tmp_path, monkeypatch):
     work = tmp_path / "work"
     work.mkdir()
-    source = fake_wheel(work)
+    version = release.project_version()
+    source = fake_wheel(work, version=version)
 
     def build(folder: Path, offline: bool) -> Path:
         return Path(shutil.copy(source, folder))
@@ -72,8 +73,8 @@ def test_build_release_layout_and_immutability(tmp_path, monkeypatch):
     out = tmp_path / "site"
     info = release.build_release("https://get.example.com", out)
     rel = out / "releases" / info["release"]
-    wheel_sha = hashlib.sha256((rel / "claubiz-0.1.0-py3-none-any.whl").read_bytes()).hexdigest()
-    assert info["release"] == f"0.1.0-{wheel_sha[:12]}"
+    wheel_sha = hashlib.sha256((rel / f"claubiz-{version}-py3-none-any.whl").read_bytes()).hexdigest()
+    assert info["release"] == f"{version}-{wheel_sha[:12]}"
     installer = (out / "install.sh").read_text(encoding="utf-8")
     assert installer == (rel / "install.sh").read_text(encoding="utf-8")
     assert f"CLAUBIZ_WHEEL_SHA256='{wheel_sha}'" in installer
