@@ -17,6 +17,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from . import hostos
 from .paths import confine, ensure_private_dir, read_bytes_nofollow, write_private_text
 from .policy import Classification
 from .workspace import ACTION_TYPES, EXPORT_NAME_RE, RUN_ID_RE, Workspace, WorkspaceError, check_export_dir
@@ -378,7 +379,7 @@ def _write_new(folder: Path, stem: str, ext: str, data: bytes) -> Path:
         name = f"{stem}.{ext}" if attempt == 1 else f"{stem} ({attempt}).{ext}"
         target = folder / name
         try:
-            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            fd = hostos.open_fd(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:
             continue
         try:

@@ -9,6 +9,7 @@ from pathlib import Path
 import keyring
 from keyring.errors import KeyringError, PasswordDeleteError
 
+from . import hostos
 from .paths import UnsafePathError, read_bytes_nofollow
 
 KEY_PATTERN = re.compile(r"^sk-ant-[a-z0-9]{2,16}-[A-Za-z0-9_\-]{20,256}$")
@@ -158,9 +159,9 @@ class KeychainStore:
 
     def import_file(self, path: Path) -> SecretValue:
         st = os.lstat(path)
-        if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        if hostos.stat_is_link(st) or not stat.S_ISREG(st.st_mode):
             raise SecretError("키 파일은 일반 파일이어야 함")
-        if st.st_uid != os.getuid():
+        if not hostos.owned_by_me(path, st):
             raise SecretError("현재 사용자 소유의 키 파일만 가져올 수 있음")
         try:
             raw = read_bytes_nofollow(path, 4096)
@@ -176,7 +177,7 @@ class KeychainStore:
 
 
 def secure_unlink(path: Path) -> None:
-    fd = os.open(path, os.O_WRONLY | os.O_NOFOLLOW)
+    fd = hostos.open_fd(path, os.O_WRONLY)
     try:
         size = os.fstat(fd).st_size
         os.write(fd, os.urandom(size))

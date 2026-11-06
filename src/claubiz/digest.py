@@ -1,5 +1,4 @@
 import asyncio
-import fcntl
 import hashlib
 import json
 import os
@@ -12,6 +11,7 @@ from datetime import datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from . import hostos
 from .config import MODEL_CHOICES
 from .paths import confine, read_bytes_nofollow, write_private_text
 from .policy import scope_allows_web
@@ -103,7 +103,7 @@ class DigestClaim:
     def release(self) -> None:
         if self.fd >= 0:
             try:
-                fcntl.flock(self.fd, fcntl.LOCK_UN)
+                hostos.unlock(self.fd)
             finally:
                 os.close(self.fd)
                 self.fd = -1
@@ -121,16 +121,16 @@ class DigestStore:
 
     @staticmethod
     def _open_lock(path) -> int:
-        return os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        return hostos.open_fd(path, os.O_RDWR | os.O_CREAT, 0o600)
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
         fd = self._open_lock(self._lock_path("digests.lock"))
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
+            hostos.lock(fd)
             yield
         finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            hostos.unlock(fd)
             os.close(fd)
 
     def load(self) -> list[DigestSpec]:
@@ -192,9 +192,7 @@ class DigestStore:
         if not DIGEST_ID_RE.fullmatch(digest_id):
             return None
         fd = self._open_lock(self._lock_path(f"digest-{digest_id}.lock"))
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+        if not hostos.lock(fd, blocking=False):
             os.close(fd)
             return None
         try:
@@ -208,11 +206,11 @@ class DigestStore:
                 )
                 self._save(specs)
         except LookupError:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            hostos.unlock(fd)
             os.close(fd)
             return None
         except BaseException:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            hostos.unlock(fd)
             os.close(fd)
             raise
         return DigestClaim(self.ws.name, digest_id, now, fd)
@@ -225,11 +223,9 @@ class DigestStore:
             return False
         fd = self._open_lock(path)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return True
-        else:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            if not hostos.lock(fd, blocking=False):
+                return True
+            hostos.unlock(fd)
             return False
         finally:
             os.close(fd)

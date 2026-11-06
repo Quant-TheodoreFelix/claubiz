@@ -2,7 +2,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import stat
 import time
 import tomllib
@@ -11,6 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from . import hostos
 from .paths import confine, ensure_private_dir, home, home_path, read_bytes_nofollow, write_private_text
 from .policy import Classification, Scope, scope_allows_inputs, validate_domains
 
@@ -247,7 +247,7 @@ class Workspace:
     @staticmethod
     def list_names() -> list[str]:
         base = workspaces_root()
-        return sorted(p.name for p in base.iterdir() if p.is_dir() and not p.is_symlink() and NAME_RE.fullmatch(p.name))
+        return sorted(p.name for p in base.iterdir() if p.is_dir() and not hostos.is_link(p) and NAME_RE.fullmatch(p.name))
 
     def save_config(self, config: WorkspaceConfig) -> None:
         if config.name != self.name:
@@ -273,7 +273,7 @@ class Workspace:
         if not scope_allows_inputs(self.config.scope):
             raise WorkspaceError(f"이 작업 영역의 활동 범위({self.config.scope})는 로컬 자료를 다루지 않음")
         src = source.expanduser()
-        if src.is_symlink() or not src.is_file():
+        if hostos.is_link(src) or not src.is_file():
             raise WorkspaceError(f"일반 파일만 가져올 수 있음: {source}")
         if src.suffix.lower() not in TEXT_EXTENSIONS:
             raise WorkspaceError(f"지원하지 않는 형식: {src.suffix} (지원: {', '.join(sorted(TEXT_EXTENSIONS))})")
@@ -444,7 +444,7 @@ class Workspace:
             return []
         folder = confine(self.root, "outputs", run_id)
         tasks_dir = folder / "tasks"
-        if not tasks_dir.is_dir() or tasks_dir.is_symlink():
+        if not tasks_dir.is_dir() or hostos.is_link(tasks_dir):
             return []
         ids = sorted(
             (p.stem for p in tasks_dir.glob("t*.md") if re.fullmatch(r"t\d{1,2}", p.stem)),
@@ -488,9 +488,9 @@ def check_export_dir(raw: str) -> Path:
         st = folder.lstat()
     except FileNotFoundError:
         raise WorkspaceError(f"폴더가 없음: {raw}") from None
-    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+    if hostos.stat_is_link(st) or not stat.S_ISDIR(st.st_mode):
         raise WorkspaceError("심볼릭 링크가 아닌 실제 폴더만 고를 수 있음")
-    if st.st_uid != os.getuid():
+    if not hostos.owned_by_me(folder, st):
         raise WorkspaceError("현재 사용자 소유 폴더에만 복사할 수 있음")
     resolved = folder.resolve(strict=True)
     data = home_path().expanduser().resolve()
@@ -511,7 +511,7 @@ def export_report(ws: Workspace, run_id: str, raw_dir: str) -> tuple[Path, str]:
         name = f"{stem}.md" if attempt == 1 else f"{stem} ({attempt}).md"
         target = folder / name
         try:
-            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            fd = hostos.open_fd(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:
             continue
         try:
@@ -527,8 +527,9 @@ def export_report(ws: Workspace, run_id: str, raw_dir: str) -> tuple[Path, str]:
 
 
 def _remove_tree(path: Path) -> None:
-    if path.is_symlink() or not path.is_dir():
+    if hostos.is_link(path) or not path.is_dir():
         raise WorkspaceError(f"삭제 대상이 디렉터리가 아님: {path.name}")
-    if not shutil.rmtree.avoids_symlink_attacks:
-        raise WorkspaceError("이 플랫폼에서는 안전한 디렉터리 삭제를 지원하지 않음")
-    shutil.rmtree(path)
+    try:
+        hostos.remove_tree(path)
+    except hostos.UnsupportedError as exc:
+        raise WorkspaceError(str(exc)) from None

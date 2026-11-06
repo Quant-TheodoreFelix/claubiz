@@ -1,4 +1,3 @@
-import fcntl
 import hashlib
 import json
 import math
@@ -11,6 +10,7 @@ from datetime import UTC, date, datetime
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from . import hostos
 from .paths import confine, read_bytes_nofollow, write_private_text
 from .policy import Classification
 from .render import norm_url
@@ -91,12 +91,12 @@ class KnowledgeStore:
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
-        fd = os.open(confine(self.ws.root, "knowledge.lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        fd = hostos.open_fd(confine(self.ws.root, "knowledge.lock"), os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
+            hostos.lock(fd)
             yield
         finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            hostos.unlock(fd)
             os.close(fd)
 
     def facts(self) -> list[Fact]:

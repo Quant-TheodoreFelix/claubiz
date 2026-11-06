@@ -31,6 +31,7 @@ from textual.widgets import (
 )
 from textual.widgets.option_list import Option
 
+from .. import hostos
 from ..actions import ActionError, ActionStore
 from ..audit import AuditLog
 from ..config import MODEL_CHOICES
@@ -364,7 +365,7 @@ def scan_files(base: Path, excluded: Path, limit: int = INDEX_LIMIT, depth: int 
             if entry.name.startswith(".") or len(found) >= limit:
                 continue
             try:
-                if entry.is_symlink():
+                if hostos.stat_is_link(entry.stat(follow_symlinks=False)):
                     continue
                 path = Path(entry.path)
                 if entry.is_dir(follow_symlinks=False):
@@ -410,7 +411,7 @@ def list_directory(raw: str, base: Path, excluded: Path) -> list[FileEntry]:
     folder = Path(folder_text or "/")
     if not folder.is_absolute():
         folder = base / folder
-    if folder.is_symlink() or not folder.is_dir() or _excluded(folder, excluded):
+    if hostos.is_link(folder) or not folder.is_dir() or _excluded(folder, excluded):
         return []
     show_hidden = prefix.startswith(".")
     low = prefix.lower()
@@ -425,7 +426,7 @@ def list_directory(raw: str, base: Path, excluded: Path) -> list[FileEntry]:
         if (entry.name.startswith(".") and not show_hidden) or (low and low not in entry.name.lower()):
             continue
         try:
-            if entry.is_symlink():
+            if hostos.stat_is_link(entry.stat(follow_symlinks=False)):
                 continue
             path = Path(entry.path)
             if entry.is_dir(follow_symlinks=False):
@@ -622,7 +623,7 @@ class ImportModal(FormModal):
             return
         path = Path(os.path.expanduser(raw))
         path = path if path.is_absolute() else self.base_dir / path
-        if path.is_symlink() or not path.is_file():
+        if hostos.is_link(path) or not path.is_file():
             self.show_error(f"{raw}: 일반 파일을 찾을 수 없음")
             return
         if path.suffix.lower() not in TEXT_EXTENSIONS:

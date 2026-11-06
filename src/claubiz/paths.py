@@ -2,6 +2,8 @@ import os
 import stat
 from pathlib import Path
 
+from . import hostos
+
 HOME_ENV = "CLAUBIZ_HOME"
 
 
@@ -29,12 +31,11 @@ def home() -> Path:
 def ensure_private_dir(path: Path) -> Path:
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     st = path.lstat()
-    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+    if hostos.stat_is_link(st) or not stat.S_ISDIR(st.st_mode):
         raise UnsafePathError(f"디렉터리가 아니거나 심볼릭 링크임: {path}")
-    if st.st_uid != os.getuid():
+    if not hostos.owned_by_me(path, st):
         raise UnsafePathError(f"현재 사용자 소유가 아님: {path}")
-    if st.st_mode & 0o077:
-        os.chmod(path, 0o700)
+    hostos.restrict_dir(path, st)
     return path
 
 
@@ -47,20 +48,20 @@ def confine(root: Path, *parts: str) -> Path:
     resolved = candidate.resolve(strict=False)
     if not resolved.is_relative_to(base):
         raise UnsafePathError(f"작업 영역 밖 경로: {candidate}")
-    if candidate.is_symlink():
+    if hostos.is_link(candidate):
         raise UnsafePathError(f"심볼릭 링크는 허용되지 않음: {candidate}")
     return candidate
 
 
 def write_private_bytes(path: Path, data: bytes) -> None:
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    fd = hostos.open_fd(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, path)
+        hostos.replace(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)
@@ -74,7 +75,7 @@ def write_private_text(path: Path, text: str) -> None:
 
 
 def read_bytes_nofollow(path: Path, limit: int) -> bytes:
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = hostos.open_fd(path, os.O_RDONLY)
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):

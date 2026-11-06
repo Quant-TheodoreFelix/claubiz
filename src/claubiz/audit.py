@@ -1,4 +1,3 @@
-import fcntl
 import hashlib
 import json
 import os
@@ -6,6 +5,7 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import hostos
 from .paths import home
 from .secrets import redact
 
@@ -46,9 +46,9 @@ class AuditLog:
 
     def append(self, event: str, **data) -> str:
         with self._lock:
-            fd = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+            fd = hostos.open_fd(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX)
+                hostos.lock(fd)
                 last = _last_line(fd)
                 if last:
                     prev_record = json.loads(last)
@@ -68,7 +68,7 @@ class AuditLog:
                 os.fsync(fd)
                 return digest
             finally:
-                fcntl.flock(fd, fcntl.LOCK_UN)
+                hostos.unlock(fd)
                 os.close(fd)
 
     def verify(self) -> tuple[bool, int, str]:

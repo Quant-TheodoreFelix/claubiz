@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from . import hostos
 from .paths import confine, ensure_private_dir, home, read_bytes_nofollow, write_private_text
 
 PLAYBOOK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,39}$")
@@ -125,7 +126,7 @@ def load_custom_playbooks() -> tuple[dict[str, Playbook], list[str]]:
     found: dict[str, Playbook] = {}
     errors: list[str] = []
     for path in sorted(playbooks_dir().glob("*.toml")):
-        if path.is_symlink():
+        if hostos.is_link(path):
             errors.append(f"{path.name}: 심볼릭 링크는 무시함")
             continue
         try:

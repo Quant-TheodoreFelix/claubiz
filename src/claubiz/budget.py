@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from . import hostos
 from .config import Settings
 from .paths import home
 
@@ -138,7 +139,7 @@ class Ledger:
         fresh = not self.path.exists()
         self._conn = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
         if fresh:
-            self.path.chmod(0o600)
+            hostos.restrict_file(self.path)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=FULL")
         self._conn.executescript(SCHEMA)
