@@ -343,6 +343,7 @@
   "매일": "daily",
   "매일 09:00, 평일 08:30, 월,목 10:00, 6시간마다": "daily 09:00, weekdays 08:30, mon,thu 10:00, every 6 hours",
   "매주 {days}": "weekly {days}",
+  "매주 실행하려면 요일을 함께 적어야 함 (예: 매주 월 09:00)": "Weekly runs need a day (e.g. weekly mon 09:00)",
   "먼저 작업 영역을 선택해야 함": "Select a workspace first",
   "메일 초안": "Email draft",
   "메일 초안·일정·표·문서 제안 (승인 시 파일 생성)": "Email drafts, events, tables, docs (files made on approval)",

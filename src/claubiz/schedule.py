@@ -15,7 +15,7 @@ EN_DAY_WORDS = {
 EN_ALL_DAYS = frozenset({"daily", "everyday"})
 EN_WEEKDAYS = frozenset({"weekday", "weekdays"})
 EN_WEEKEND = frozenset({"weekend", "weekends"})
-EN_FILLER = frozenset({"weekly", "every", "at", "on", "and"})
+EN_FILLER = frozenset({"every", "at", "on", "and"})
 WEEKDAYS = (0, 1, 2, 3, 4)
 WEEKEND = (5, 6)
 EVERY_RE = re.compile(r"^(?:매\s*)?(\d{1,3})\s*시간\s*(?:마다|간격)?$")
@@ -153,14 +153,20 @@ def parse_schedule(text: str) -> Schedule:
     tokens = [t for t in re.split(r"[\s,]+", normalized) if t]
     days: set[int] = set()
     times: list[tuple[int, int]] = []
+    weekly = False
     for token in tokens:
-        if token == "매주" or token.lower() in EN_FILLER:
+        if token == "매주" or token.lower() == "weekly":
+            weekly = True
+            continue
+        if token.lower() in EN_FILLER:
             continue
         parsed_days = _parse_days(token)
         if parsed_days is not None:
             days.update(parsed_days)
             continue
         times.append(_parse_time(token))
+    if weekly and not days:
+        raise ScheduleError(tr("매주 실행하려면 요일을 함께 적어야 함 (예: 매주 월 09:00)"))
     if not times:
         raise ScheduleError(tr("실행 시각을 적어야 함 (예: 매일 09:00)"))
     unique_times = tuple(sorted(set(times)))

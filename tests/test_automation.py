@@ -114,7 +114,7 @@ def test_schedule_parsing():
     assert parse_schedule("주말 9시").describe() == "주말 09:00"
     assert parse_schedule("6시간마다").describe() == "6시간마다"
     assert parse_schedule("07:15").describe() == "매일 07:15"
-    for bad in ("", "매일", "매일 25:00", "화성 09:00", "0시간마다", "오후 13시", "1000시간마다"):
+    for bad in ("", "매일", "매일 25:00", "화성 09:00", "0시간마다", "오후 13시", "1000시간마다", "매주 09:00"):
         with pytest.raises(ScheduleError):
             parse_schedule(bad)
     weekdays = parse_schedule("평일 09:00")

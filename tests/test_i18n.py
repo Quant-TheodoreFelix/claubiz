@@ -1,7 +1,7 @@
 import pytest
 
 from claubiz import i18n
-from claubiz.schedule import parse_schedule
+from claubiz.schedule import ScheduleError, parse_schedule
 
 
 def test_language_resolution(monkeypatch, tmp_path):
@@ -38,6 +38,13 @@ def test_tr_formats_named_values():
     ("weekends 9am", "주말 09:00"),
     ("every 6 hours", "6시간마다"),
     ("12am", "매일 00:00"),
+    ("weekly mon 9am", "매주 월 09:00"),
 ])
 def test_english_schedule_syntax(text, expected):
     assert parse_schedule(text).describe() == expected
+
+
+@pytest.mark.parametrize("text", ["weekly 09:00", "매주 9am", "weekly"])
+def test_weekly_needs_days(text):
+    with pytest.raises(ScheduleError):
+        parse_schedule(text)
