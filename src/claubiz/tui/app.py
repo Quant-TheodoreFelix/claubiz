@@ -31,7 +31,7 @@ from textual.widgets.option_list import Option, OptionDoesNotExist
 
 from .. import eventfmt
 from ..actions import TYPE_LABELS, ActionError, ActionStore, preview_markdown
-from ..agent import plist_path
+from ..agent import registration_path
 from ..brief import generate_brief
 from ..budget import cycle_start
 from ..config import MODEL_CHOICES, MODEL_ROLES, ConfigError, Settings, load_settings, model_label
@@ -60,6 +60,7 @@ from .modals import (
     ProfileModal,
     RunImportModal,
     RunViewerModal,
+    folder_hint,
 )
 from .theme import CLAY, ERROR, FAINT, MUTED, PERIWINKLE, STATUS_STYLES, SUCCESS, THEMES, WARNING
 from .widgets import (
@@ -224,7 +225,7 @@ class ClaubizApp(App[None]):
         self.drafts: dict[str, Draft] = {}
         self.model_pref: str | None = None
         self.idle_log = LogBuffer()
-        self.export_dir = "~/"
+        self.export_dir = folder_hint(Path.home())
         self.clock: Callable[[], float] = time.monotonic
         self._esc_start = 0.0
         self._esc_last: float | None = None
@@ -473,7 +474,8 @@ class ClaubizApp(App[None]):
     def _clear_hold_hint(self) -> None:
         self._esc_last = None
         self._esc_count = 0
-        self.query_one("#hold-hint", Static).update("")
+        with suppress(NoMatches):
+            self.query_one("#hold-hint", Static).update("")
 
     def action_interrupt(self) -> None:
         if not self._esc_fresh:
@@ -1303,7 +1305,7 @@ class ClaubizApp(App[None]):
             if not path:
                 return
             folder = str(Path(path).parent)
-            self.export_dir = folder.replace(str(Path.home()), "~", 1).rstrip("/") + "/"
+            self.export_dir = folder_hint(folder)
             self.notify(path, title="보고서를 복사함", timeout=6)
 
         def confirmed(ok: bool | None) -> None:
@@ -1544,7 +1546,10 @@ class ClaubizApp(App[None]):
         self._show_fact(self._cursor_key("#facts"))
 
     def _show_fact(self, fact_id: str | None) -> None:
-        detail = self.query_one("#fact-detail", Static)
+        try:
+            detail = self.query_one("#fact-detail", Static)
+        except NoMatches:
+            return
         fact = self.facts_by_id.get(fact_id or "")
         if fact is None:
             detail.update(Text("실행이 끝나면 보고서에서 출처가 있는 사실만 골라 여기에 쌓음. 다음 실행은 이를 참고해 "
@@ -1658,7 +1663,7 @@ class ClaubizApp(App[None]):
             table.add_row(*self._digest_row(spec), key=spec.id)
         if not allowed:
             agent.update(Text("자료 전용 작업 영역이라 정기 정리를 쓸 수 없음", style=MUTED))
-        elif plist_path().is_file():
+        elif registration_path().is_file():
             agent.update(Text("백그라운드 실행 등록됨 · TUI를 닫아도 실행", style=SUCCESS))
         else:
             agent.update(Text("TUI 실행 중에만 동작 · 상시 실행: claubiz agent install", style=MUTED))
@@ -2031,7 +2036,7 @@ class ClaubizApp(App[None]):
             if not path:
                 return
             folder = str(Path(path).parent)
-            self.export_dir = folder.replace(str(Path.home()), "~", 1).rstrip("/") + "/"
+            self.export_dir = folder_hint(folder)
             self.notify(path, title="파일을 복사함", timeout=6)
 
         self._confirm_confidential(
