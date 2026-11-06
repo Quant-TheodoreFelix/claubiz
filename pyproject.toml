@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-claubiz = "claubiz.cli:main"
+claubiz = "claubiz.launcher:main"
 
 [build-system]
 requires = ["hatchling"]

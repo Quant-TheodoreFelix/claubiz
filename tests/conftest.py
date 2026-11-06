@@ -1,4 +1,8 @@
+import os
+
 import pytest
+
+os.environ["CLAUBIZ_LANG"] = "ko"
 
 
 @pytest.fixture(autouse=True)

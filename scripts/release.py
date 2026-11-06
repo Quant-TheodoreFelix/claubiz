@@ -18,7 +18,13 @@ LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost"})
 URL_CHARS = re.compile(r"[A-Za-z0-9._~:/%-]+")
 WHEEL_NAME = re.compile(r"claubiz-(\d+\.\d+\.\d+)-py3-none-any\.whl")
 PLACEHOLDER = re.compile(r"@[A-Z0-9_]+@")
-REQUIRED_ENTRIES = ("claubiz/__init__.py", "claubiz/cli.py", "claubiz/tui/app.py", "claubiz/tui/app.tcss")
+REQUIRED_ENTRIES = (
+    "claubiz/__init__.py",
+    "claubiz/cli.py",
+    "claubiz/tui/app.py",
+    "claubiz/tui/app.tcss",
+    "claubiz/locales/en.json",
+)
 FORBIDDEN_PARTS = ("__pycache__", ".DS_Store", ".pyc")
 TEXT_PATHS = (
     "/install.sh",

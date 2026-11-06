@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from . import i18n
 from .paths import home, read_bytes_nofollow, write_private_text
 
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
@@ -134,6 +135,7 @@ class OrchestratorConfig(Strict):
 
 class UiConfig(Strict):
     theme: str = Field("claubiz", pattern=r"^[a-z0-9-]{2,40}$")
+    language: Literal["ko", "en"] = "ko"
 
 
 class Price(Strict):
@@ -260,10 +262,11 @@ max_tasks = 6
 cache_warm_fanout = true
 escalate_on_failure = true
 max_pause_continuations = 4
-output_language = "Korean"
+output_language = "{output_language}"
 
 [ui]
 theme = "claubiz"
+language = "{language}"
 """
 
 
@@ -271,7 +274,9 @@ def write_default_config(path: Path | None = None, overwrite: bool = False, work
     target = path or config_path()
     if target.exists() and not overwrite:
         return target
-    text = DEFAULT_CONFIG_TOML.replace("{workspace_id}", workspace_id)
+    lang = i18n.language()
+    text = (DEFAULT_CONFIG_TOML.replace("{workspace_id}", workspace_id)
+            .replace("{output_language}", i18n.OUTPUT_LANGUAGES[lang]).replace("{language}", lang))
     Settings.model_validate(tomllib.loads(text))
     write_private_text(target, text)
     return target

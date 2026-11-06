@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from . import __version__, eventfmt, hostos
+from . import __version__, eventfmt, hostos, i18n
 from .actions import TYPE_LABELS, ActionError, ActionStore
 from .agent import AgentError
 from .audit import AuditLog
@@ -580,6 +580,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"claubiz {__version__}")
     parser.add_argument("--home", help=f"데이터 폴더 (기본 ~/{DEFAULT_DIR}, 환경 변수 {HOME_ENV}로도 지정)")
+    parser.add_argument("--lang", choices=i18n.SUPPORTED, help="화면 언어 (ko, en, 환경 변수 CLAUBIZ_LANG로도 지정)")
     sub = parser.add_subparsers(dest="command")
 
     p = sub.add_parser("init", help="데이터 폴더와 설정 파일 생성")
@@ -676,13 +677,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=cmd_digest_run)
 
-    agent_parser = sub.add_parser("agent", help="정기 정리 백그라운드 실행 (macOS launchd)")
+    agent_parser = sub.add_parser("agent", help="정기 정리 백그라운드 실행 (macOS launchd, Windows 작업 스케줄러)")
     agent_cmds = agent_parser.add_subparsers(dest="agent_cmd", required=True)
-    p = agent_cmds.add_parser("install", help="LaunchAgent 등록")
+    p = agent_cmds.add_parser("install", help="백그라운드 실행 등록")
     p.add_argument("--interval", type=int, default=15, help="확인 간격 (분, 5~240)")
     p.add_argument("--yes", action="store_true")
     p.set_defaults(func=cmd_agent)
-    p = agent_cmds.add_parser("uninstall", help="LaunchAgent 해제")
+    p = agent_cmds.add_parser("uninstall", help="백그라운드 실행 해제")
     p.set_defaults(func=cmd_agent)
     p = agent_cmds.add_parser("status", help="등록 상태")
     p.set_defaults(func=cmd_agent)
@@ -765,7 +766,8 @@ def main(argv: list[str] | None = None) -> int:
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             parser.print_help()
             return 0
-        args = parser.parse_args([*(["--home", args.home] if args.home else []), "tui"])
+        args = parser.parse_args([*(["--home", args.home] if args.home else []),
+                                  *(["--lang", args.lang] if args.lang else []), "tui"])
     try:
         return args.func(args)
     except (ConfigError, SecretError, WorkspaceError, PolicyError, RunError, PlanError, BudgetExceeded, KeyError,
