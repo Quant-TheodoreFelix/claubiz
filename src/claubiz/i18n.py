@@ -12,6 +12,7 @@ SUPPORTED = ("ko", "en")
 DEFAULT = "ko"
 OUTPUT_LANGUAGES = {"ko": "Korean", "en": "English"}
 MAX_CONFIG_BYTES = 256 * 1024
+CONTEXT = "\x04"
 
 
 def normalize(value: object) -> str | None:
@@ -97,5 +98,7 @@ def catalog(lang: str) -> dict[str, str]:
 
 
 def tr(text: str, /, **values: object) -> str:
-    translated = catalog(language()).get(text, text)
+    translated = catalog(language()).get(text)
+    if translated is None:
+        translated = text.split(CONTEXT, 1)[-1]
     return translated.format(**values) if values else translated

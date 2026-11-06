@@ -16,6 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from . import hostos
+from .i18n import tr
 from .paths import confine, ensure_private_dir, read_bytes_nofollow, write_private_text
 from .policy import Classification
 from .workspace import ACTION_TYPES, EXPORT_NAME_RE, RUN_ID_RE, Workspace, WorkspaceError, check_export_dir
@@ -29,7 +30,7 @@ CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 FORMULA_PREFIX = ("=", "+", "-", "@", "\t", "\r")
 MAX_PROPOSALS = 3
 EXTENSIONS = {"email": "eml", "event": "ics", "table": "csv", "doc": "md"}
-TYPE_LABELS = {"email": "메일 초안", "event": "일정", "table": "표", "doc": "문서"}
+TYPE_LABELS = {"email": tr("메일 초안"), "event": tr("event\x04일정"), "table": tr("표"), "doc": tr("문서")}
 OPENABLE = frozenset(EXTENSIONS.values())
 
 PROPOSAL_SCHEMA: dict = {
@@ -94,7 +95,7 @@ class EmailDraft(BaseModel):
             if not address:
                 continue
             if not ADDRESS_RE.fullmatch(address):
-                raise ValueError(f"올바른 메일 주소가 아님: {address[:80]}")
+                raise ValueError(tr("올바른 메일 주소가 아님: {address}", address=address[:80]))
             if address not in out:
                 out.append(address)
         return out
@@ -120,16 +121,16 @@ class EventDraft(BaseModel):
         if not value:
             return value
         if not (DAY_RE.fullmatch(value) or MOMENT_RE.fullmatch(value)):
-            raise ValueError(f"날짜는 YYYY-MM-DD 또는 YYYY-MM-DDTHH:MM 형식이어야 함: {value[:40]}")
+            raise ValueError(tr("날짜는 YYYY-MM-DD 또는 YYYY-MM-DDTHH:MM 형식이어야 함: {value}", value=value[:40]))
         try:
             datetime.fromisoformat(value)
         except ValueError:
-            raise ValueError(f"올바른 날짜가 아님: {value}") from None
+            raise ValueError(tr("올바른 날짜가 아님: {value}", value=value)) from None
         return value
 
     def bounds(self) -> tuple[datetime | date, datetime | date]:
         if not self.start:
-            raise ValueError("시작 날짜가 필요함")
+            raise ValueError(tr("시작 날짜가 필요함"))
         all_day = DAY_RE.fullmatch(self.start) is not None
         start = date.fromisoformat(self.start) if all_day else datetime.fromisoformat(self.start)
         if self.end and (DAY_RE.fullmatch(self.end) is not None) == all_day:
@@ -222,7 +223,7 @@ def parse_proposals(raw: str, *, run_id: str, allowed: tuple[str, ...], classifi
         kind = str(item.get("type", ""))
         title = _clean_line(str(item.get("title", "")), 80)
         if kind not in allowed or not title:
-            problems.append(f"허용되지 않거나 제목 없는 제안 제외 ({kind or '-'})")
+            problems.append(tr("허용되지 않거나 제목 없는 제안 제외 ({kind})", kind=kind or "-"))
             continue
         payload = _payload(kind, item)
         try:
@@ -231,7 +232,8 @@ def parse_proposals(raw: str, *, run_id: str, allowed: tuple[str, ...], classifi
                 draft.bounds()
         except (ValidationError, ValueError) as exc:
             message = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc)
-            problems.append(f"{TYPE_LABELS[kind]} 제안 제외: {str(message).removeprefix('Value error, ')[:120]}")
+            problems.append(tr("{kind} 제안 제외: {reason}", kind=TYPE_LABELS[kind],
+                                reason=str(message).removeprefix("Value error, ")[:120]))
             continue
         actions.append(Action(
             id=new_action_id(title), run_id=run_id, type=kind, title=title,
@@ -345,17 +347,17 @@ def preview_markdown(action: Action) -> str:
     draft = action.draft()
     lines = [f"**{TYPE_LABELS.get(action.type, action.type)}** · {action.title}", ""]
     if action.reason:
-        lines += [f"> 제안 이유: {action.reason}", ""]
+        lines += [tr("> 제안 이유: {reason}", reason=action.reason), ""]
     if isinstance(draft, EmailDraft):
-        lines += [f"- 받는 사람: {', '.join(draft.to) or '(비어 있음, 메일 앱에서 입력)'}"]
+        lines += [tr("- 받는 사람: {to}", to=", ".join(draft.to) or tr("(비어 있음, 메일 앱에서 입력)"))]
         if draft.cc:
-            lines.append(f"- 참조: {', '.join(draft.cc)}")
-        lines += [f"- 제목: {draft.subject}", "", "```text", draft.body.replace("```", "'''"), "```"]
+            lines.append(tr("- 참조: {cc}", cc=", ".join(draft.cc)))
+        lines += [tr("- 제목: {subject}", subject=draft.subject), "", "```text", draft.body.replace("```", "'''"), "```"]
     elif isinstance(draft, EventDraft):
         start, end = draft.bounds()
-        lines += [f"- 시작: {start}", f"- 끝: {end}"]
+        lines += [tr("- 시작: {start}", start=start), tr("- 끝: {end}", end=end)]
         if draft.location:
-            lines.append(f"- 장소: {draft.location}")
+            lines.append(tr("- 장소: {location}", location=draft.location))
         if draft.body:
             lines += ["", draft.body]
     elif isinstance(draft, TableDraft):
@@ -366,7 +368,7 @@ def preview_markdown(action: Action) -> str:
         lines.append("|" + "---|" * len(draft.columns))
         lines += ["| " + " | ".join(cell(c) for c in row) + " |" for row in draft.rows[:50]]
         if len(draft.rows) > 50:
-            lines.append(f"\n(외 {len(draft.rows) - 50}행)")
+            lines.append(tr("\n(외 {count}행)", count=len(draft.rows) - 50))
     else:
         lines += ["---", "", draft.body]
     return "\n".join(lines)
@@ -389,7 +391,7 @@ def _write_new(folder: Path, stem: str, ext: str, data: bytes) -> Path:
             target.unlink(missing_ok=True)
             raise
         return target
-    raise ActionError("같은 이름의 파일이 너무 많아 만들지 못함")
+    raise ActionError(tr("같은 이름의 파일이 너무 많아 만들지 못함"))
 
 
 def _stem(action: Action) -> str:
@@ -410,7 +412,7 @@ class ActionStore:
 
     def _path(self, action_id: str) -> Path:
         if not ACTION_ID_RE.fullmatch(action_id):
-            raise ActionError("올바르지 않은 제안 ID")
+            raise ActionError(tr("올바르지 않은 제안 ID"))
         return confine(self._dir(), f"{action_id}.json")
 
     def save(self, action: Action) -> None:
@@ -453,13 +455,13 @@ class ActionStore:
     def approve(self, action_id: str) -> Action:
         action = self.get(action_id)
         if action is None:
-            raise ActionError("제안을 찾을 수 없음")
+            raise ActionError(tr("제안을 찾을 수 없음"))
         if action.status != "pending":
-            raise ActionError("이미 처리된 제안임")
+            raise ActionError(tr("이미 처리된 제안임"))
         try:
             data = render_action(action)
         except (ValidationError, ValueError) as exc:
-            raise ActionError(f"제안 내용이 올바르지 않음: {exc}") from None
+            raise ActionError(tr("제안 내용이 올바르지 않음: {error}", error=exc)) from None
         target = _write_new(self.outbox(), _stem(action), EXTENSIONS[action.type], data)
         done = action.model_copy(update={
             "status": "done", "decided": datetime.now(UTC).isoformat(timespec="seconds"), "output": target.name,
@@ -471,9 +473,9 @@ class ActionStore:
     def reject(self, action_id: str) -> Action:
         action = self.get(action_id)
         if action is None:
-            raise ActionError("제안을 찾을 수 없음")
+            raise ActionError(tr("제안을 찾을 수 없음"))
         if action.status != "pending":
-            raise ActionError("이미 처리된 제안임")
+            raise ActionError(tr("이미 처리된 제안임"))
         done = action.model_copy(update={"status": "rejected",
                                          "decided": datetime.now(UTC).isoformat(timespec="seconds")})
         self.save(done)
@@ -504,13 +506,13 @@ class ActionStore:
     def export(self, action_id: str, raw_dir: str) -> tuple[Path, str]:
         action = self.get(action_id)
         if action is None or action.status != "done":
-            raise ActionError("승인해서 만든 파일만 복사할 수 있음")
+            raise ActionError(tr("승인해서 만든 파일만 복사할 수 있음"))
         source = self.output_path(action)
         if source is None:
-            raise ActionError("만든 파일이 없어졌음")
+            raise ActionError(tr("만든 파일이 없어졌음"))
         data = read_bytes_nofollow(source, 16 * 1024 * 1024)
         if hashlib.sha256(data).hexdigest() != action.sha256:
-            raise ActionError("만든 파일이 승인 뒤 바뀌어 복사하지 않음")
+            raise ActionError(tr("만든 파일이 승인 뒤 바뀌어 복사하지 않음"))
         try:
             folder = check_export_dir(raw_dir)
         except WorkspaceError as exc:
@@ -521,19 +523,19 @@ class ActionStore:
     def open_output(self, action_id: str) -> Path:
         action = self.get(action_id)
         if action is None or action.status != "done":
-            raise ActionError("승인해서 만든 파일만 열 수 있음")
+            raise ActionError(tr("승인해서 만든 파일만 열 수 있음"))
         path = self.output_path(action)
         if path is None:
-            raise ActionError("만든 파일이 없어졌음")
+            raise ActionError(tr("만든 파일이 없어졌음"))
         data = read_bytes_nofollow(path, 16 * 1024 * 1024)
         if hashlib.sha256(data).hexdigest() != action.sha256:
-            raise ActionError("만든 파일이 승인 뒤 바뀌어 열지 않음")
+            raise ActionError(tr("만든 파일이 승인 뒤 바뀌어 열지 않음"))
         if path.suffix.lstrip(".") not in OPENABLE:
-            raise ActionError("열 수 없는 형식")
+            raise ActionError(tr("열 수 없는 형식"))
         try:
             hostos.open_with_default_app(path)
         except hostos.UnsupportedError as exc:
             raise ActionError(str(exc)) from None
         except OSError as exc:
-            raise ActionError(f"파일을 열지 못함, 이 형식에 연결된 앱이 있는지 확인: {exc.strerror or exc}") from None
+            raise ActionError(tr("파일을 열지 못함, 이 형식에 연결된 앱이 있는지 확인: {error}", error=exc.strerror or exc)) from None
         return path

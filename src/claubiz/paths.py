@@ -3,6 +3,7 @@ import stat
 from pathlib import Path
 
 from . import hostos
+from .i18n import tr
 
 HOME_ENV = "CLAUBIZ_HOME"
 
@@ -21,11 +22,11 @@ INVALID_NAME_CHARS = frozenset('<>:"/\\|?*')
 
 def portable_name_problem(name: str) -> str | None:
     if any(ch in INVALID_NAME_CHARS or ord(ch) < 32 for ch in name):
-        return f"쓸 수 없는 문자가 있음 (<>:\"/\\|?* 와 제어 문자): {name!r}"
+        return tr("쓸 수 없는 문자가 있음 (<>:\"/\\|?* 와 제어 문자): {name}", name=repr(name))
     if name.endswith((" ", ".")):
-        return f"점이나 공백으로 끝나는 이름은 쓸 수 없음: {name!r}"
+        return tr("점이나 공백으로 끝나는 이름은 쓸 수 없음: {name}", name=repr(name))
     if name.split(".", 1)[0].rstrip(" ").upper() in RESERVED_NAMES:
-        return f"Windows 예약 이름은 쓸 수 없음: {name!r}"
+        return tr("Windows 예약 이름은 쓸 수 없음: {name}", name=repr(name))
     return None
 
 
@@ -35,7 +36,7 @@ def home_path() -> Path:
         return Path.home() / DEFAULT_DIR
     path = Path(raw).expanduser()
     if not path.is_absolute() or "\x00" in raw:
-        raise UnsafePathError(f"{HOME_ENV}는 절대 경로여야 함: {raw}")
+        raise UnsafePathError(tr("{env}는 절대 경로여야 함: {path}", env=HOME_ENV, path=raw))
     return path
 
 
@@ -52,9 +53,9 @@ def ensure_private_dir(path: Path) -> Path:
     hostos.make_dir(path)
     st = path.lstat()
     if hostos.stat_is_link(st) or not stat.S_ISDIR(st.st_mode):
-        raise UnsafePathError(f"디렉터리가 아니거나 심볼릭 링크임: {path}")
+        raise UnsafePathError(tr("디렉터리가 아니거나 심볼릭 링크임: {path}", path=path))
     if not hostos.owned_by_me(path, st):
-        raise UnsafePathError(f"현재 사용자 소유가 아님: {path}")
+        raise UnsafePathError(tr("현재 사용자 소유가 아님: {path}", path=path))
     hostos.restrict_dir(path, st)
     return path
 
@@ -63,16 +64,16 @@ def confine(root: Path, *parts: str) -> Path:
     base = root.resolve(strict=True)
     for part in parts:
         if not part or part in (".", "..") or "/" in part or "\\" in part or "\x00" in part:
-            raise UnsafePathError(f"허용되지 않는 경로 요소: {part!r}")
+            raise UnsafePathError(tr("허용되지 않는 경로 요소: {part}", part=repr(part)))
         problem = portable_name_problem(part)
         if problem:
             raise UnsafePathError(problem)
     candidate = base.joinpath(*parts)
     resolved = candidate.resolve(strict=False)
     if not resolved.is_relative_to(base):
-        raise UnsafePathError(f"작업 영역 밖 경로: {candidate}")
+        raise UnsafePathError(tr("작업 영역 밖 경로: {path}", path=candidate))
     if hostos.is_link(candidate):
-        raise UnsafePathError(f"심볼릭 링크는 허용되지 않음: {candidate}")
+        raise UnsafePathError(tr("심볼릭 링크는 허용되지 않음: {path}", path=candidate))
     return candidate
 
 
@@ -102,9 +103,9 @@ def read_bytes_nofollow(path: Path, limit: int) -> bytes:
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):
-            raise UnsafePathError(f"일반 파일이 아님: {path}")
+            raise UnsafePathError(tr("일반 파일이 아님: {path}", path=path))
         if st.st_size > limit:
-            raise UnsafePathError(f"파일 크기 제한({limit} bytes) 초과: {path}")
+            raise UnsafePathError(tr("파일 크기 제한({limit} bytes) 초과: {path}", limit=limit, path=path))
         chunks = []
         remaining = limit + 1
         while remaining > 0:
@@ -115,7 +116,7 @@ def read_bytes_nofollow(path: Path, limit: int) -> bytes:
             remaining -= len(chunk)
         data = b"".join(chunks)
         if len(data) > limit:
-            raise UnsafePathError(f"파일 크기 제한({limit} bytes) 초과: {path}")
+            raise UnsafePathError(tr("파일 크기 제한({limit} bytes) 초과: {path}", limit=limit, path=path))
         return data
     finally:
         os.close(fd)

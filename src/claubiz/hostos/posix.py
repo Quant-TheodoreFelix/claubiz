@@ -4,6 +4,7 @@ import shutil
 import stat
 from pathlib import Path
 
+from ..i18n import tr
 from ._common import UnsupportedError
 
 
@@ -60,5 +61,5 @@ def replace(src, dst) -> None:
 
 def remove_tree(path) -> None:
     if not shutil.rmtree.avoids_symlink_attacks:
-        raise UnsupportedError("이 플랫폼에서는 안전한 디렉터리 삭제를 지원하지 않음")
+        raise UnsupportedError(tr("이 플랫폼에서는 안전한 디렉터리 삭제를 지원하지 않음"))
     shutil.rmtree(path)

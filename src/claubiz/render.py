@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
+from .i18n import language, tr
+
 HANDOFF_RE = re.compile(r"<handoff>(.*?)</handoff>", re.DOTALL)
 STATUS_RE = re.compile(r"<status>\s*(ok|partial|insufficient)\s*</status>", re.IGNORECASE)
 URL_RE = re.compile(r"https?://[^\s)\]>\"'<`]+")
@@ -34,13 +36,14 @@ class RenderedNotes:
     def as_markdown(self) -> str:
         lines = [self.body.rstrip()]
         if self.sources:
-            lines += ["", "### 출처"]
+            lines += ["", tr("### 출처")]
             lines += [f"{s.index}. [{_md_escape(s.title)}]({s.url})" for s in self.sources]
         if self.consulted:
-            lines += ["", "### 참고한 페이지"]
+            lines += ["", tr("### 참고한 페이지")]
             lines += [f"- [{_md_escape(s.title)}]({s.url})" for s in self.consulted]
         if self.unverified:
-            lines += ["", "### 확인되지 않은 링크", "", "> 검색이나 페치 결과에 없던 주소임, 사용 전 확인 필요", ""]
+            heading = UNVERIFIED_HEADINGS[0] if language() == "ko" else UNVERIFIED_HEADINGS[1]
+            lines += ["", heading, "", tr("> 검색이나 페치 결과에 없던 주소임, 사용 전 확인 필요"), ""]
             lines += [f"- {u}" for u in self.unverified]
         return "\n".join(lines) + "\n"
 
@@ -51,7 +54,7 @@ def strip_unverified(text: str) -> str:
 
 
 def _md_escape(text: str) -> str:
-    return text.replace("[", "(").replace("]", ")").replace("\n", " ").strip() or "출처"
+    return text.replace("[", "(").replace("]", ")").replace("\n", " ").strip() or tr("link\x04출처")
 
 
 def _safe_url(url: str) -> str | None:

@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from . import hostos
 from .config import MODEL_CHOICES
+from .i18n import tr
 from .paths import confine, read_bytes_nofollow, write_private_text
 from .policy import scope_allows_web
 from .render import urls_in
@@ -57,7 +58,7 @@ class DigestSpec(BaseModel):
     @classmethod
     def _id(cls, value: str) -> str:
         if not DIGEST_ID_RE.fullmatch(value):
-            raise ValueError("올바르지 않은 정기 정리 ID")
+            raise ValueError(tr("올바르지 않은 정기 정리 ID"))
         return value
 
     @field_validator("schedule")
@@ -72,7 +73,7 @@ class DigestSpec(BaseModel):
     @classmethod
     def _model(cls, value: str) -> str:
         if value and value not in dict(MODEL_CHOICES):
-            raise ValueError(f"고를 수 없는 모델: {value}")
+            raise ValueError(tr("고를 수 없는 모델: {model}", model=value))
         return value
 
     def next_due(self) -> datetime:
@@ -155,13 +156,13 @@ class DigestStore:
 
     def add(self, spec: DigestSpec) -> DigestSpec:
         if not scope_allows_web(self.ws.config.scope):
-            raise DigestError("정기 정리는 웹 조사가 필요해 자료 전용 작업 영역에서는 쓸 수 없음")
+            raise DigestError(tr("정기 정리는 웹 조사가 필요해 자료 전용 작업 영역에서는 쓸 수 없음"))
         with self._locked():
             specs = self.load()
             if len(specs) >= MAX_DIGESTS:
-                raise DigestError(f"정기 정리는 작업 영역마다 최대 {MAX_DIGESTS}개")
+                raise DigestError(tr("정기 정리는 작업 영역마다 최대 {limit}개", limit=MAX_DIGESTS))
             if any(s.id == spec.id for s in specs):
-                raise DigestError("이미 있는 정기 정리 ID")
+                raise DigestError(tr("이미 있는 정기 정리 ID"))
             specs.append(spec)
             self._save(specs)
         return spec
@@ -175,7 +176,7 @@ class DigestStore:
                     specs[i] = updated
                     self._save(specs)
                     return updated
-        raise DigestError("정기 정리를 찾을 수 없음")
+        raise DigestError(tr("정기 정리를 찾을 수 없음"))
 
     def remove(self, digest_id: str) -> bool:
         with self._locked():
@@ -304,7 +305,7 @@ def make_spec(ws: Workspace, *, title: str, request: str, schedule: str, model: 
               max_searches: int = 4, run_cap: float = DEFAULT_DIGEST_CAP, enabled: bool = True,
               now: datetime | None = None) -> DigestSpec:
     if max_searches > ws.config.web.max_searches_per_task:
-        raise DigestError(f"검색 수는 작업 영역 상한({ws.config.web.max_searches_per_task}회) 이하여야 함")
+        raise DigestError(tr("검색 수는 작업 영역 상한({limit}회) 이하여야 함", limit=ws.config.web.max_searches_per_task))
     stamp = (now or datetime.now()).isoformat(timespec="seconds")
     try:
         return DigestSpec(

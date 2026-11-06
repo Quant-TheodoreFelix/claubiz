@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 
+from ..i18n import tr
 from ._common import HostError, UnsupportedError
 
 if sys.platform == "win32":
@@ -62,7 +63,7 @@ def open_with_default_app(path) -> None:
     elif sys.platform == "win32":
         os.startfile(str(path), "open")
     else:
-        raise UnsupportedError("파일 열기는 macOS와 Windows에서만 지원함")
+        raise UnsupportedError(tr("파일 열기는 macOS와 Windows에서만 지원함"))
 
 
 def is_link(path) -> bool:

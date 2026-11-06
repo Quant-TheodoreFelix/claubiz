@@ -9,6 +9,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from . import hostos
+from .i18n import tr
 from .paths import ensure_private_dir, home, home_path, write_private_bytes
 
 LABEL = "com.claubiz.digest"
@@ -81,8 +82,8 @@ def _backend() -> str:
         return "launchd"
     if sys.platform == "win32":
         return "schtasks"
-    raise AgentError("백그라운드 실행 등록은 macOS(launchd)와 Windows(작업 스케줄러)에서만 지원함. 다른 OS는 "
-                     "cron이나 systemd timer로 `claubiz digest run-due`를 주기 실행하면 됨")
+    raise AgentError(tr("백그라운드 실행 등록은 macOS(launchd)와 Windows(작업 스케줄러)에서만 지원함. 다른 OS는 "
+                        "cron이나 systemd timer로 `claubiz digest run-due`를 주기 실행하면 됨"))
 
 
 def plist_path() -> Path:
@@ -103,7 +104,7 @@ def log_path() -> Path:
 
 def _check_interval(interval_minutes: int) -> None:
     if not MIN_INTERVAL <= interval_minutes <= MAX_INTERVAL:
-        raise AgentError(f"확인 간격은 {MIN_INTERVAL}~{MAX_INTERVAL}분이어야 함")
+        raise AgentError(tr("확인 간격은 {low}~{high}분이어야 함", low=MIN_INTERVAL, high=MAX_INTERVAL))
 
 
 def _run_args(data_dir: str) -> list[str]:
@@ -163,7 +164,7 @@ def _check_target(path: Path) -> None:
     except FileNotFoundError:
         return
     if hostos.stat_is_link(st) or not stat.S_ISREG(st.st_mode) or not hostos.owned_by_me(path, st):
-        raise AgentError(f"등록 파일 자리에 일반 파일이 아닌 항목이 있음: {path}")
+        raise AgentError(tr("등록 파일 자리에 일반 파일이 아닌 항목이 있음: {path}", path=path))
 
 
 def _touch_log() -> Path:
@@ -196,7 +197,7 @@ def _install_launchd(interval_minutes: int, runner: Runner) -> Path:
     result = runner(["/bin/launchctl", "bootstrap", _domain(), str(target)], check=False, capture_output=True,
                     timeout=30)
     if result.returncode != 0:
-        raise AgentError(f"launchctl 등록 실패: {_detail(result)}")
+        raise AgentError(tr("launchctl 등록 실패: {detail}", detail=_detail(result)))
     return target
 
 
@@ -212,7 +213,7 @@ def _install_task(interval_minutes: int, runner: Runner) -> Path:
                     capture_output=True, timeout=30)
     if result.returncode != 0:
         target.unlink(missing_ok=True)
-        raise AgentError(f"작업 스케줄러 등록 실패: {_detail(result)}")
+        raise AgentError(tr("작업 스케줄러 등록 실패: {detail}", detail=_detail(result)))
     return target
 
 

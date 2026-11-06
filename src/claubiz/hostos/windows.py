@@ -6,6 +6,7 @@ import time
 from functools import cache
 from pathlib import Path
 
+from ..i18n import tr
 from . import winapi as w
 from ._common import HostError
 
@@ -132,7 +133,7 @@ def _open_meta(path, access: int) -> int:
     try:
         info = _tag_info(handle)
         if _is_surrogate(info.FileAttributes, info.ReparseTag):
-            raise OSError(errno.ELOOP, "링크는 허용되지 않음", str(path))
+            raise OSError(errno.ELOOP, tr("링크는 허용되지 않음"), str(path))
     except BaseException:
         _close(handle)
         raise
@@ -175,7 +176,7 @@ def open_fd(path, flags: int, mode: int = 0o600) -> int:
         info = _tag_info(handle)
         if info.FileAttributes & w.FILE_ATTRIBUTE_REPARSE_POINT:
             if _is_surrogate(info.FileAttributes, info.ReparseTag):
-                raise OSError(errno.ELOOP, "링크는 열 수 없음", str(path))
+                raise OSError(errno.ELOOP, tr("링크는 열 수 없음"), str(path))
             first = handle
             handle = _create(path, access, w.OPEN_EXISTING, w.FILE_ATTRIBUTE_NORMAL)
             try:
@@ -183,7 +184,7 @@ def open_fd(path, flags: int, mode: int = 0o600) -> int:
             finally:
                 _close(first)
             if not same:
-                raise OSError(errno.ELOOP, "파일이 열리는 도중 바뀜", str(path))
+                raise OSError(errno.ELOOP, tr("파일이 열리는 도중 바뀜"), str(path))
         crt = os.O_NOINHERIT
         if rw == os.O_RDONLY:
             crt |= os.O_RDONLY
@@ -370,7 +371,7 @@ def _unlink(path: str) -> None:
 def remove_tree(path) -> None:
     root = os.fspath(path)
     if stat_is_link(os.lstat(root)):
-        raise HostError(f"링크라서 삭제하지 않음: {root}")
+        raise HostError(tr("링크라서 삭제하지 않음: {path}", path=root))
     pending = [root]
     folders = []
     while pending:
@@ -420,17 +421,18 @@ def check_data_location(path) -> None:
     path = Path(path)
     text = str(path)
     if text.startswith(("\\\\", "//")):
-        raise HostError(f"네트워크 경로나 장치 경로에는 데이터 폴더를 둘 수 없음: {text}")
+        raise HostError(tr("네트워크 경로나 장치 경로에는 데이터 폴더를 둘 수 없음: {path}", path=text))
     for name in ONEDRIVE_VARS:
         root = os.environ.get(name, "").strip()
         if root and _inside(path, root):
-            raise HostError(f"OneDrive 동기화 폴더 안에는 데이터 폴더를 둘 수 없음 (업무 자료가 클라우드로 올라감): {text}")
+            raise HostError(tr("OneDrive 동기화 폴더 안에는 데이터 폴더를 둘 수 없음 (업무 자료가 클라우드로 올라감): {path}",
+                               path=text))
     volume = _volume_root(path)
     k32 = w.kernel32()
     if k32.GetDriveTypeW(volume) == w.DRIVE_REMOTE:
-        raise HostError(f"네트워크 드라이브에는 데이터 폴더를 둘 수 없음: {text}")
+        raise HostError(tr("네트워크 드라이브에는 데이터 폴더를 둘 수 없음: {path}", path=text))
     flags = ctypes.c_ulong(0)
     if not k32.GetVolumeInformationW(volume, None, 0, None, None, ctypes.byref(flags), None, 0):
         raise w.error(w.last_error(), volume)
     if not flags.value & w.FILE_PERSISTENT_ACLS:
-        raise HostError(f"권한(ACL)을 지원하지 않는 드라이브(FAT32, exFAT 등)에는 데이터 폴더를 둘 수 없음: {text}")
+        raise HostError(tr("권한(ACL)을 지원하지 않는 드라이브(FAT32, exFAT 등)에는 데이터 폴더를 둘 수 없음: {path}", path=text))

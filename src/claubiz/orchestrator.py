@@ -14,6 +14,7 @@ from .audit import AuditLog
 from .budget import BudgetExceeded, BudgetGuard, Ledger, ReservationPool
 from .config import MODEL_ROLES, ConfigError, Settings, with_model
 from .events import EventBus
+from .i18n import tr
 from .knowledge import (
     EXTRACT_SCHEMA,
     Fact,
@@ -250,25 +251,25 @@ class Orchestrator:
     ) -> tuple[str, Playbook | None, float, PlanContext, str]:
         goal = goal.strip()
         if not goal or len(goal) > MAX_GOAL_CHARS:
-            raise RunError(f"목표는 1자 이상 {MAX_GOAL_CHARS}자 이하여야 함")
+            raise RunError(tr("목표는 1자 이상 {limit}자 이하여야 함", limit=MAX_GOAL_CHARS))
         playbook = get_playbook(playbook_id)
         cap = run_cap or self.settings.budget.run_default_usd
         if cap > self.settings.budget.monthly_hard_usd:
-            raise RunError("실행 예산이 월 상한보다 클 수 없음")
+            raise RunError(tr("실행 예산이 월 상한보다 클 수 없음"))
         base_record = None
         base_report = ""
         if base_run_id:
             base_record = self.ws.load_run(base_run_id)
             if base_record is None or base_record.get("status") not in FOLLOWABLE:
-                raise RunError("이어서 작업할 수 있는 실행이 아님 (완료 또는 일부 완료된 실행만 가능)")
+                raise RunError(tr("이어서 작업할 수 있는 실행이 아님 (완료 또는 일부 완료된 실행만 가능)"))
             if base_record.get("allow_confidential") and not allow_confidential:
-                raise RunError("confidential 자료를 보낸 실행은 confidential 전송을 허용해야 이어서 작업할 수 있음")
+                raise RunError(tr("confidential 자료를 보낸 실행은 confidential 전송을 허용해야 이어서 작업할 수 있음"))
             base_report = self._base_report(base_run_id)
         ctx = build_context(self.ws, playbook, allow_confidential, base_record)
         if playbook and playbook.needs_inputs and not ctx.sendable_inputs:
-            raise RunError("이 플레이북은 작업 영역에 전송 가능한 입력 자료가 필요함 (`claubiz ws import`)")
+            raise RunError(tr("이 플레이북은 작업 영역에 전송 가능한 입력 자료가 필요함 (`claubiz ws import`)"))
         if playbook and playbook.needs_web and not ctx.web_allowed:
-            raise RunError(f"이 플레이북은 웹 접근이 필요하지만 작업 영역 활동 범위가 {self.ws.config.scope}임")
+            raise RunError(tr("이 플레이북은 웹 접근이 필요하지만 작업 영역 활동 범위가 {scope}임", scope=self.ws.config.scope))
         return goal, playbook, cap, ctx, base_report
 
     def _base_report(self, run_id: str) -> str:
@@ -277,14 +278,14 @@ class Orchestrator:
         if self.ws.config.redact_pii:
             text, _ = redact_pii(text)
         if len(text) > MAX_BASE_REPORT_CHARS:
-            text = text[:MAX_BASE_REPORT_CHARS] + "\n\n(이하 생략)"
+            text = text[:MAX_BASE_REPORT_CHARS] + tr("\n\n(이하 생략)")
         return text
 
     def _fresh_run_id(self, run_id: str | None) -> str:
         if run_id is None:
             return new_run_id()
         if not RUN_ID_RE.fullmatch(run_id) or self.ws.load_run(run_id) is not None:
-            raise RunError("사용할 수 없는 실행 ID")
+            raise RunError(tr("사용할 수 없는 실행 ID"))
         return run_id
 
     def _requested(self, event: str, run_id: str, goal: str, playbook: Playbook | None, ctx: PlanContext,
@@ -318,7 +319,7 @@ class Orchestrator:
             schema=PLAN_SCHEMA,
         )
         if result.stop_reason != "end_turn":
-            raise PlanError(f"계획 생성이 완료되지 않음 (stop_reason={result.stop_reason})")
+            raise PlanError(tr("계획 생성이 완료되지 않음 (stop_reason={reason})", reason=result.stop_reason))
         plan, notes = validate_plan(plain_text(result.blocks), self.ws, ctx, self.settings)
         estimate = estimate_plan(plan, self.ws, self.settings, self.ledger)
         session = RunSession(
@@ -345,26 +346,26 @@ class Orchestrator:
         limit = self.ws.config.web.max_searches_per_task
         if digest is not None:
             if not ctx.web_allowed:
-                raise RunError("정기 정리는 웹 조사가 필요하지만 이 작업 영역은 웹을 쓸 수 없음")
+                raise RunError(tr("정기 정리는 웹 조사가 필요하지만 이 작업 영역은 웹을 쓸 수 없음"))
             title = f"{digest['title']} · {datetime.now().strftime('%Y-%m-%d')}"
             effort = worker.clamp("low")
             searches = max(1, min(int(digest.get("max_searches") or limit), limit))
-            approach = f"정기 정리: {digest['since']} 이후 새 소식만 에이전트 하나가 조사해 정리함"
+            approach = tr("정기 정리: {since} 이후 새 소식만 에이전트 하나가 조사해 정리함", since=digest["since"])
         else:
             used = 0
             for f in ctx.sendable_inputs:
                 if used + f.chars > DIRECT_INPUT_CHARS:
-                    notes.append(f"입력 자료 분량 제한으로 제외: {f.name}")
+                    notes.append(tr("입력 자료 분량 제한으로 제외: {name}", name=f.name))
                     continue
                 inputs.append(f.name)
                 used += f.chars
             if not use_web and not inputs:
-                notes.append("웹과 입력 자료가 모두 없음, 모델 지식만으로 작성됨")
+                notes.append(tr("웹과 입력 자료가 모두 없음, 모델 지식만으로 작성됨"))
             title = " ".join(goal.split())
             title = title if len(title) <= 60 else title[:59] + "…"
             effort = worker.clamp("medium")
             searches = limit if use_web else 0
-            approach = "계획 단계 없이 에이전트 하나가 목표를 바로 조사하고 보고서를 작성함"
+            approach = tr("계획 단계 없이 에이전트 하나가 목표를 바로 조사하고 보고서를 작성함")
         task = PlannedTask(
             id="t1", title=title, objective=goal, use_web=use_web, inputs=inputs, depends_on=[],
             effort=effort, max_searches=searches, reuse_ref="",
@@ -466,7 +467,8 @@ class Orchestrator:
         return DIRECT_SYSTEM if session.direct else WORKER_SYSTEM
 
     def _write_task(self, out_dir: Path, st: TaskState) -> None:
-        header = f"# {st.task.id}. {st.task.title}\n\n> 상태: {st.status} | effort: {st.effort} | 비용: ${st.cost:.4f}\n\n"
+        header = tr("# {id}. {title}\n\n> 상태: {status} | effort: {effort} | 비용: ${cost:.4f}\n\n", id=st.task.id,
+                    title=st.task.title, status=st.status, effort=st.effort, cost=st.cost)
         write_private_text(out_dir / "tasks" / f"{st.task.id}.md", header + (st.notes_md or st.error) + "\n")
 
     async def _run_task(
@@ -588,14 +590,14 @@ class Orchestrator:
             role="synthesizer", model=role.model, effort=session.plan.synth_effort, web=False, cost=result.cost
         )
         if result.stop_reason == "max_tokens":
-            rendered_body = rendered.body + "\n\n> 주의: 출력 한도에 도달해 보고서가 잘렸을 수 있음\n"
+            rendered_body = rendered.body + tr("\n\n> 주의: 출력 한도에 도달해 보고서가 잘렸을 수 있음\n")
         else:
             rendered_body = rendered.body
         self.bus.emit("synth.done", session.run_id, cost=result.cost)
         return rendered_body, rendered.handoff, result.cost
 
     def _fallback_report(self, session: RunSession, states: dict[str, TaskState], reason: str) -> str:
-        parts = [f"# {session.plan.title}", "", f"> 종합 단계를 실행하지 못해 작업별 노트를 그대로 묶음: {reason}", ""]
+        parts = [f"# {session.plan.title}", "", tr("> 종합 단계를 실행하지 못해 작업별 노트를 그대로 묶음: {reason}", reason=reason), ""]
         for st in states.values():
             if st.notes_md:
                 parts += [f"## {st.task.id}. {st.task.title}", "", st.notes_md, ""]
@@ -608,7 +610,7 @@ class Orchestrator:
         try:
             body, summary, _ = await self._synthesize(session, states, guard)
         except (BudgetExceeded, RefusalError, anthropic.APIError) as exc:
-            warnings.append(f"종합 단계 실패: {exc}")
+            warnings.append(tr("종합 단계 실패: {error}", error=exc))
             return "partial", self._fallback_report(session, states, str(exc)), ""
         known: set[str] = set(fact_sources(session.facts_used.values()))
         for done in completed:
@@ -619,8 +621,8 @@ class Orchestrator:
             known |= set(urls_in(session.base_report))
         suspicious = unknown_urls(body, known)
         if suspicious:
-            warnings.append(f"노트에 없는 링크 {len(suspicious)}개 발견, 보고서 하단에 표시함")
-            body += "\n\n## 검증되지 않은 링크\n\n> 아래 링크는 작업 노트의 출처에 없던 주소임, 사용 전 확인 필요\n\n"
+            warnings.append(tr("노트에 없는 링크 {count}개 발견, 보고서 하단에 표시함", count=len(suspicious)))
+            body += tr("\n\n## 검증되지 않은 링크\n\n> 아래 링크는 작업 노트의 출처에 없던 주소임, 사용 전 확인 필요\n\n")
             body += "\n".join(f"- {u}" for u in suspicious) + "\n"
         return status, body, summary
 
@@ -649,7 +651,7 @@ class Orchestrator:
                     await finished[dep].wait()
                 failed = [d for d in st.task.depends_on if states[d].status not in ("done", "reused")]
                 if failed:
-                    st.status, st.error = "skipped", f"선행 작업 실패: {', '.join(failed)}"
+                    st.status, st.error = "skipped", tr("선행 작업 실패: {tasks}", tasks=", ".join(failed))
                     self.bus.emit("task.skipped", session.run_id, st.task.id, reason=st.error)
                     return
                 self.bus.emit("task.queued", session.run_id, st.task.id)
@@ -665,7 +667,8 @@ class Orchestrator:
                 self.bus.emit("task.failed", session.run_id, st.task.id, reason=str(exc))
             except anthropic.APIError as exc:
                 detail = getattr(exc, "message", "") or type(exc).__name__
-                st.status, st.error = "failed", f"API 오류 {type(exc).__name__}: {str(detail)[:200]}"
+                st.status, st.error = "failed", tr("API 오류 {kind}: {detail}", kind=type(exc).__name__,
+                                                    detail=str(detail)[:200])
                 self.audit.append("task.failed", run_id=session.run_id, task_id=st.task.id, error=st.error)
                 self.bus.emit("task.failed", session.run_id, st.task.id, reason=st.error)
             except Exception as exc:
@@ -684,7 +687,7 @@ class Orchestrator:
             if not completed:
                 self._record(session, "failed", states)
                 self.audit.append("run.failed", run_id=session.run_id, reason="no completed tasks")
-                self.bus.emit("run.failed", session.run_id, reason="완료된 작업이 없음")
+                self.bus.emit("run.failed", session.run_id, reason=tr("완료된 작업이 없음"))
                 return RunOutcome(session.run_id, "failed", None, self.ledger.spent_run(session.run_id),
                                   [s.summary() for s in states.values()])
             status = "completed" if len(completed) == len(states) else "partial"
@@ -696,7 +699,8 @@ class Orchestrator:
             else:
                 status, body, summary = await self._final_report(session, states, completed, guard, status, warnings)
             total = self.ledger.spent_run(session.run_id)
-            footer = f"\n\n---\n실행 {session.run_id} | 작업 영역 {self.ws.name} | 비용 ${total:.4f}\n"
+            footer = tr("\n\n---\n실행 {run} | 작업 영역 {workspace} | 비용 ${cost:.4f}\n", run=session.run_id,
+                        workspace=self.ws.name, cost=total)
             report_path = out_dir / "report.md"
             write_private_text(report_path, body.rstrip() + footer)
             self._record(session, status, states, summary=summary, report=str(report_path), warnings=warnings)
@@ -745,7 +749,7 @@ class Orchestrator:
         if self.ws.config.redact_pii:
             text, _ = redact_pii(text)
         if len(text) > HELPER_REPORT_CHARS:
-            text = text[:HELPER_REPORT_CHARS] + "\n\n(이하 생략)"
+            text = text[:HELPER_REPORT_CHARS] + tr("\n\n(이하 생략)")
         return text
 
     async def _helper(self, run_id: str, task_id: str, prompt: str, message: str, schema: dict,
@@ -761,7 +765,7 @@ class Orchestrator:
             schema=schema,
         )
         if result.stop_reason != "end_turn":
-            raise ValueError(f"응답이 완료되지 않음 (stop_reason={result.stop_reason})")
+            raise ValueError(tr("응답이 완료되지 않음 (stop_reason={reason})", reason=result.stop_reason))
         return plain_text(result.blocks), result.cost
 
     async def _learn(self, run_id: str, goal: str, body: str, sources: set[str], known: list[Fact], floor: str,
@@ -783,7 +787,7 @@ class Orchestrator:
             )
             added, replaced = KnowledgeStore(self.ws).merge(facts, replaces)
         except (BudgetExceeded, RefusalError, anthropic.APIError, ValueError, ValidationError, OSError) as exc:
-            warnings.append(f"지식 정리 생략: {str(exc)[:160]}")
+            warnings.append(tr("지식 정리 생략: {error}", error=str(exc)[:160]))
             self.bus.emit("knowledge.failed", run_id, reason=str(exc)[:160])
             return 0
         self.ledger.record_task_cost(role="helper", model=self.settings.models.helper.model, effort="low", web=False,
@@ -813,7 +817,7 @@ class Orchestrator:
             for action in actions:
                 store.save(action)
         except (BudgetExceeded, RefusalError, anthropic.APIError, ValueError, ValidationError, OSError) as exc:
-            warnings.append(f"행동 제안 생략: {str(exc)[:160]}")
+            warnings.append(tr("행동 제안 생략: {error}", error=str(exc)[:160]))
             self.bus.emit("actions.failed", run_id, reason=str(exc)[:160])
             return []
         warnings.extend(problems)
@@ -827,9 +831,9 @@ class Orchestrator:
         record = self.ws.load_run(run_id)
         report = self.ws.read_report(run_id)
         if record is None or not report or record.get("status") not in FOLLOWABLE:
-            raise RunError("보고서가 있는 완료된 실행에만 행동 제안을 받을 수 있음")
+            raise RunError(tr("보고서가 있는 완료된 실행에만 행동 제안을 받을 수 있음"))
         if not self.ws.config.actions:
-            raise RunError("이 작업 영역은 행동 제안을 쓰지 않도록 설정됨")
+            raise RunError(tr("이 작업 영역은 행동 제안을 쓰지 않도록 설정됨"))
         cap = self.ledger.spent_run(run_id) + MANUAL_HELPER_CAP
         guard = self._guard(run_id, cap)
         warnings: list[str] = []
@@ -871,17 +875,17 @@ class Orchestrator:
     def resume(self, run_id: str, allow_confidential: bool = False) -> RunSession:
         record = self.ws.load_run(run_id)
         if record is None:
-            raise RunError("실행 기록을 찾을 수 없음")
+            raise RunError(tr("실행 기록을 찾을 수 없음"))
         if record.get("status") not in RESUMABLE:
-            raise RunError("중단되었거나 실패한 실행만 재개할 수 있음")
+            raise RunError(tr("중단되었거나 실패한 실행만 재개할 수 있음"))
         allowed = bool(record.get("allow_confidential"))
         if allowed and not allow_confidential:
-            raise RunError("confidential 전송을 허용했던 실행이라 다시 명시적으로 허용해야 재개할 수 있음")
+            raise RunError(tr("confidential 전송을 허용했던 실행이라 다시 명시적으로 허용해야 재개할 수 있음"))
         try:
             plan = Plan.model_validate(record["plan"])
             playbook = get_playbook(record.get("playbook"))
         except (KeyError, TypeError, ValidationError) as exc:
-            raise RunError(f"실행 기록을 재개할 수 없음: {exc}") from None
+            raise RunError(tr("실행 기록을 재개할 수 없음: {error}", error=exc)) from None
         notes: list[str] = []
         base_record = None
         base_report = ""
@@ -890,7 +894,7 @@ class Orchestrator:
             base_record = self.ws.load_run(base_id)
             if base_record is None or base_record.get("status") not in FOLLOWABLE:
                 base_record = None
-                notes.append("이어서 작업한 원래 실행이 없어져 그 보고서 없이 재개함")
+                notes.append(tr("이어서 작업한 원래 실행이 없어져 그 보고서 없이 재개함"))
             else:
                 base_report = self._base_report(base_id)
         ctx = build_context(self.ws, playbook, allowed, base_record)
@@ -906,10 +910,10 @@ class Orchestrator:
                 continue
             missing = [name for name in task.inputs if name not in available]
             if missing:
-                raise RunError(f"재개에 필요한 입력 자료가 없거나 지금 정책으로 보낼 수 없음: {', '.join(missing)}")
+                raise RunError(tr("재개에 필요한 입력 자료가 없거나 지금 정책으로 보낼 수 없음: {names}", names=", ".join(missing)))
             if task.use_web and not ctx.web_allowed:
                 task = task.model_copy(update={"use_web": False, "max_searches": 0})
-                notes.append(f"{task.id}: 작업 영역 정책이 바뀌어 웹 조사 없이 진행함")
+                notes.append(tr("{task}: 작업 영역 정책이 바뀌어 웹 조사 없이 진행함", task=task.id))
             tasks.append(task)
         plan = plan.model_copy(update={"tasks": tasks})
         for task_id, st in prior.items():

@@ -4,6 +4,7 @@ import httpx2
 from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 
 from .config import Settings
+from .i18n import tr
 from .secrets import SecretValue
 
 FINGERPRINT_HEADERS = ("x-stainless-os", "x-stainless-arch", "x-stainless-runtime", "x-stainless-runtime-version")
@@ -21,7 +22,7 @@ class EgressGuardTransport(httpx2.AsyncBaseTransport):
     async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
         url = request.url
         if url.scheme != "https" or url.host not in self._allowed or url.port not in (None, 443):
-            raise EgressBlocked(f"허용되지 않은 외부 통신 차단: {url.scheme}://{url.host}", request=request)
+            raise EgressBlocked(tr("허용되지 않은 외부 통신 차단: {target}", target=f"{url.scheme}://{url.host}"), request=request)
         for name in FINGERPRINT_HEADERS:
             if name in request.headers:
                 del request.headers[name]

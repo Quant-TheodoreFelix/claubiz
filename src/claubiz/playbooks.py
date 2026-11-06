@@ -7,6 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from . import hostos
+from .i18n import tr
 from .paths import confine, ensure_private_dir, home, read_bytes_nofollow, write_private_text
 
 PLAYBOOK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,39}$")
@@ -48,7 +49,7 @@ class PlaybookSpec(BaseModel):
     @classmethod
     def _id(cls, value: str) -> str:
         if not PLAYBOOK_ID_RE.fullmatch(value):
-            raise ValueError("플레이북 ID는 소문자, 숫자, - 만 쓸 수 있음 (2~40자)")
+            raise ValueError(tr("플레이북 ID는 소문자, 숫자, - 만 쓸 수 있음 (2~40자)"))
         return value
 
     def to_playbook(self) -> Playbook:
@@ -60,9 +61,9 @@ BUILTIN_PLAYBOOKS: dict[str, Playbook] = {
     for p in (
         Playbook(
             id="market-research",
-            title="시장·경쟁사 조사 보고서",
-            description="주제를 받아 시장 현황, 주요 경쟁사, 기회와 위험을 웹에서 조사하고 출처가 달린 보고서를 만든다",
-            goal_hint="예: 국내 B2B SaaS 전자계약 시장과 주요 경쟁사 조사",
+            title=tr("시장·경쟁사 조사 보고서"),
+            description=tr("주제를 받아 시장 현황, 주요 경쟁사, 기회와 위험을 웹에서 조사하고 출처가 달린 보고서를 만든다"),
+            goal_hint=tr("예: 국내 B2B SaaS 전자계약 시장과 주요 경쟁사 조사"),
             planner_guidance=(
                 "Playbook: market and competitor research report. Typical decomposition: (a) market definition, size, "
                 "growth and key trends; (b) one task per one or two major competitors covering offering, pricing, "
@@ -79,9 +80,9 @@ BUILTIN_PLAYBOOKS: dict[str, Playbook] = {
         ),
         Playbook(
             id="trend-monitor",
-            title="정기 동향 모니터링",
-            description="키워드나 경쟁사의 최근 동향을 조사하고 이전 실행 결과와 비교해 변화점만 보고한다",
-            goal_hint="예: 국내 생성형 AI 규제와 주요 빅테크 발표 동향",
+            title=tr("정기 동향 모니터링"),
+            description=tr("키워드나 경쟁사의 최근 동향을 조사하고 이전 실행 결과와 비교해 변화점만 보고한다"),
+            goal_hint=tr("예: 국내 생성형 AI 규제와 주요 빅테크 발표 동향"),
             planner_guidance=(
                 "Playbook: periodic trend monitoring. Focus only on developments since the previous run date given in "
                 "the context (or the last 30 days if there is no previous run). Use 2 to 4 tasks split by topic or "
@@ -98,9 +99,9 @@ BUILTIN_PLAYBOOKS: dict[str, Playbook] = {
         ),
         Playbook(
             id="doc-digest",
-            title="자료 요약·정리",
-            description="작업 영역에 가져온 문서를 읽고 핵심 요약, 결정 사항, 할 일, 남은 질문으로 정리한다",
-            goal_hint="예: 이번 주 회의록과 제안서 초안을 요약하고 할 일 정리",
+            title=tr("자료 요약·정리"),
+            description=tr("작업 영역에 가져온 문서를 읽고 핵심 요약, 결정 사항, 할 일, 남은 질문으로 정리한다"),
+            goal_hint=tr("예: 이번 주 회의록과 제안서 초안을 요약하고 할 일 정리"),
             planner_guidance=(
                 "Playbook: document digest. Assign the workspace input files to tasks, usually one task per document "
                 "or per group of small related documents. Do not use web unless the goal explicitly asks to verify or "
@@ -127,7 +128,7 @@ def load_custom_playbooks() -> tuple[dict[str, Playbook], list[str]]:
     errors: list[str] = []
     for path in sorted(playbooks_dir().glob("*.toml")):
         if hostos.is_link(path):
-            errors.append(f"{path.name}: 심볼릭 링크는 무시함")
+            errors.append(tr("{name}: 심볼릭 링크는 무시함", name=path.name))
             continue
         try:
             raw = read_bytes_nofollow(path, MAX_PLAYBOOK_BYTES).decode("utf-8")
@@ -136,7 +137,7 @@ def load_custom_playbooks() -> tuple[dict[str, Playbook], list[str]]:
             errors.append(f"{path.name}: {type(exc).__name__}")
             continue
         if spec.id != path.stem or spec.id in BUILTIN_PLAYBOOKS:
-            errors.append(f"{path.name}: ID가 파일 이름과 다르거나 기본 플레이북과 겹침")
+            errors.append(tr("{name}: ID가 파일 이름과 다르거나 기본 플레이북과 겹침", name=path.name))
             continue
         found[spec.id] = spec.to_playbook()
     return found, errors
@@ -157,10 +158,10 @@ def render_playbook_toml(spec: PlaybookSpec) -> str:
 
 def save_custom_playbook(spec: PlaybookSpec) -> Playbook:
     if spec.id in BUILTIN_PLAYBOOKS:
-        raise PlaybookError(f"기본 플레이북과 같은 ID는 쓸 수 없음: {spec.id}")
+        raise PlaybookError(tr("기본 플레이북과 같은 ID는 쓸 수 없음: {id}", id=spec.id))
     target = confine(playbooks_dir(), f"{spec.id}.toml")
     if target.exists():
-        raise PlaybookError(f"이미 있는 플레이북 ID: {spec.id}")
+        raise PlaybookError(tr("이미 있는 플레이북 ID: {id}", id=spec.id))
     write_private_text(target, render_playbook_toml(spec))
     return spec.to_playbook()
 
@@ -170,5 +171,5 @@ def get_playbook(playbook_id: str | None) -> Playbook | None:
         return None
     playbooks = all_playbooks()
     if playbook_id not in playbooks:
-        raise KeyError(f"알 수 없는 플레이북: {playbook_id} (사용 가능: {', '.join(playbooks)})")
+        raise KeyError(tr("알 수 없는 플레이북: {id} (사용 가능: {available})", id=playbook_id, available=", ".join(playbooks)))
     return playbooks[playbook_id]

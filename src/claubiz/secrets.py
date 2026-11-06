@@ -10,6 +10,7 @@ import keyring
 from keyring.errors import KeyringError, PasswordDeleteError
 
 from . import hostos
+from .i18n import tr
 from .paths import UnsafePathError, read_bytes_nofollow
 
 KEY_PATTERN = re.compile(r"^sk-ant-[a-z0-9]{2,16}-[A-Za-z0-9_\-]{20,256}$")
@@ -63,7 +64,7 @@ class SecretValue:
     __str__ = __repr__
 
     def __reduce__(self):
-        raise TypeError("SecretValue는 직렬화할 수 없음")
+        raise TypeError(tr("SecretValue는 직렬화할 수 없음"))
 
 
 def redact(text: str) -> str:
@@ -102,11 +103,11 @@ def scrub_credential_env() -> list[str]:
 def validate_key(value: str) -> SecretValue:
     candidate = value.strip()
     if not KEY_PATTERN.fullmatch(candidate):
-        raise SecretError("API 키 형식이 올바르지 않음")
+        raise SecretError(tr("API 키 형식이 올바르지 않음"))
     if candidate.startswith("sk-ant-admin"):
-        raise SecretError("Admin API 키는 에이전트 실행용으로 허용하지 않음")
+        raise SecretError(tr("Admin API 키는 에이전트 실행용으로 허용하지 않음"))
     if candidate.startswith("sk-ant-oat"):
-        raise SecretError("OAuth 토큰은 허용하지 않음, Console에서 발급한 API 키를 사용해야 함")
+        raise SecretError(tr("OAuth 토큰은 허용하지 않음, Console에서 발급한 API 키를 사용해야 함"))
     return SecretValue(candidate)
 
 
@@ -118,7 +119,7 @@ def backend_name() -> str:
 def _secure_backend():
     name = backend_name()
     if name not in SECURE_BACKENDS:
-        raise SecretError(f"안전하지 않은 키링 백엔드: {name}")
+        raise SecretError(tr("안전하지 않은 키링 백엔드: {name}", name=name))
     backend = keyring.get_keyring()
     if name == WINDOWS_BACKEND:
         backend.persist = WINDOWS_PERSIST
@@ -134,13 +135,13 @@ class KeychainStore:
         try:
             raw = _secure_backend().get_password(self.service, self.account)
         except KeyringError as exc:
-            raise SecretError(f"키체인 읽기 실패: {type(exc).__name__}") from None
+            raise SecretError(tr("키체인 읽기 실패: {error}", error=type(exc).__name__)) from None
         return None if raw is None else validate_key(raw)
 
     def require(self) -> SecretValue:
         value = self.get()
         if value is None:
-            raise SecretError("키체인에 API 키가 없음, `claubiz auth import-file` 또는 `claubiz auth set`으로 등록 필요")
+            raise SecretError(tr("키체인에 API 키가 없음, `claubiz auth import-file` 또는 `claubiz auth set`으로 등록 필요"))
         return value
 
     def set(self, value: SecretValue) -> None:
@@ -148,10 +149,10 @@ class KeychainStore:
         try:
             backend.set_password(self.service, self.account, value.reveal())
         except KeyringError as exc:
-            raise SecretError(f"키체인 저장 실패: {type(exc).__name__}") from None
+            raise SecretError(tr("키체인 저장 실패: {error}", error=type(exc).__name__)) from None
         stored = self.get()
         if stored is None or not stored.matches(value):
-            raise SecretError("키체인 저장 후 검증 실패")
+            raise SecretError(tr("키체인 저장 후 검증 실패"))
 
     def delete(self) -> bool:
         try:
@@ -160,14 +161,14 @@ class KeychainStore:
         except PasswordDeleteError:
             return False
         except KeyringError as exc:
-            raise SecretError(f"키체인 삭제 실패: {type(exc).__name__}") from None
+            raise SecretError(tr("키체인 삭제 실패: {error}", error=type(exc).__name__)) from None
 
     def import_file(self, path: Path) -> SecretValue:
         st = os.lstat(path)
         if hostos.stat_is_link(st) or not stat.S_ISREG(st.st_mode):
-            raise SecretError("키 파일은 일반 파일이어야 함")
+            raise SecretError(tr("키 파일은 일반 파일이어야 함"))
         if not hostos.owned_by_me(path, st):
-            raise SecretError("현재 사용자 소유의 키 파일만 가져올 수 있음")
+            raise SecretError(tr("현재 사용자 소유의 키 파일만 가져올 수 있음"))
         try:
             raw = read_bytes_nofollow(path, 4096)
         except UnsafePathError as exc:
@@ -175,7 +176,7 @@ class KeychainStore:
         try:
             text = raw.decode("ascii")
         except UnicodeDecodeError:
-            raise SecretError("키 파일에 ASCII 외 문자가 포함됨") from None
+            raise SecretError(tr("키 파일에 ASCII 외 문자가 포함됨")) from None
         value = validate_key(text)
         self.set(value)
         return value

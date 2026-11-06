@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .budget import Ledger
 from .config import OUTPUT_TOKENS_BY_EFFORT, Settings
+from .i18n import tr
 from .knowledge import Fact, KnowledgeStore, facts_block, select_facts
 from .playbooks import Playbook
 from .policy import may_send, scope_allows_inputs, scope_allows_web
@@ -212,7 +213,7 @@ def _topo_order(tasks: list[PlannedTask]) -> list[str]:
                 if not ds and other not in order and other not in ready:
                     ready.append(other)
     if len(order) != len(tasks):
-        raise PlanError("작업 의존성에 순환이 있음")
+        raise PlanError(tr("작업 의존성에 순환이 있음"))
     return order
 
 
@@ -220,16 +221,16 @@ def validate_plan(raw: str, ws: Workspace, ctx: PlanContext, settings: Settings)
     try:
         plan = Plan.model_validate(json.loads(raw))
     except (json.JSONDecodeError, ValidationError) as exc:
-        raise PlanError(f"계획 형식 오류: {exc}") from None
+        raise PlanError(tr("계획 형식 오류: {error}", error=exc)) from None
     notes: list[str] = []
     if not plan.tasks:
-        raise PlanError("계획에 작업이 없음")
+        raise PlanError(tr("계획에 작업이 없음"))
     if len(plan.tasks) > settings.orchestrator.max_tasks:
-        notes.append(f"작업 수 제한으로 {len(plan.tasks) - settings.orchestrator.max_tasks}개 작업을 제외함")
+        notes.append(tr("작업 수 제한으로 {count}개 작업을 제외함", count=len(plan.tasks) - settings.orchestrator.max_tasks))
         plan.tasks = plan.tasks[: settings.orchestrator.max_tasks]
     ids = [t.id for t in plan.tasks]
     if len(set(ids)) != len(ids) or not all(TASK_ID_RE.fullmatch(i) for i in ids):
-        raise PlanError("작업 ID가 중복되었거나 형식이 올바르지 않음")
+        raise PlanError(tr("작업 ID가 중복되었거나 형식이 올바르지 않음"))
     known_inputs = {f.name for f in ctx.sendable_inputs}
     worker = settings.models.worker
     limit = ws.config.web.max_searches_per_task
@@ -237,27 +238,27 @@ def validate_plan(raw: str, ws: Workspace, ctx: PlanContext, settings: Settings)
         task.depends_on = [d for d in dict.fromkeys(task.depends_on) if d in ids and d != task.id]
         bad_inputs = [i for i in task.inputs if i not in known_inputs]
         if bad_inputs:
-            notes.append(f"{task.id}: 허용되지 않거나 없는 입력 파일 제외 ({', '.join(bad_inputs)})")
+            notes.append(tr("{task}: 허용되지 않거나 없는 입력 파일 제외 ({names})", task=task.id, names=", ".join(bad_inputs)))
         task.inputs = [i for i in dict.fromkeys(task.inputs) if i in known_inputs]
         if task.use_web and not ctx.web_allowed:
-            notes.append(f"{task.id}: 작업 영역 정책상 웹 사용 불가, 웹 비활성화")
+            notes.append(tr("{task}: 작업 영역 정책상 웹 사용 불가, 웹 비활성화", task=task.id))
             task.use_web = False
         task.max_searches = min(max(task.max_searches, 1), limit) if task.use_web else 0
         clamped = worker.clamp(task.effort)
         if clamped != task.effort:
-            notes.append(f"{task.id}: effort {task.effort} -> {clamped} (설정 범위)")
+            notes.append(tr("{task}: effort {before} -> {after} (설정 범위)", task=task.id, before=task.effort, after=clamped))
             task.effort = clamped
         if task.reuse_ref and task.reuse_ref not in ctx.reusable:
-            notes.append(f"{task.id}: 재사용 대상이 유효하지 않아 새로 조사함")
+            notes.append(tr("{task}: 재사용 대상이 유효하지 않아 새로 조사함", task=task.id))
             task.reuse_ref = ""
         if task.reuse_ref and not REUSE_RE.fullmatch(task.reuse_ref):
             task.reuse_ref = ""
         if not task.use_web and not task.inputs and not task.reuse_ref and not task.depends_on:
-            notes.append(f"{task.id}: 웹과 입력 자료가 모두 없음, 모델 지식만으로 작성됨")
+            notes.append(tr("{task}: 웹과 입력 자료가 모두 없음, 모델 지식만으로 작성됨", task=task.id))
     synth = settings.models.synthesizer
     clamped_synth = synth.clamp(plan.synth_effort)
     if clamped_synth != plan.synth_effort:
-        notes.append(f"종합 effort {plan.synth_effort} -> {clamped_synth} (설정 범위)")
+        notes.append(tr("종합 effort {before} -> {after} (설정 범위)", before=plan.synth_effort, after=clamped_synth))
         plan.synth_effort = clamped_synth
     _topo_order(plan.tasks)
     return plan, notes
