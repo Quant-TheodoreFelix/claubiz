@@ -44,7 +44,7 @@ def test_render_fills_every_value():
         release.render_installer(template, {k: v for k, v in values.items() if k != "LOCK_SHA256"})
     sh = shutil.which("sh")
     if sh:
-        result = subprocess.run([sh, "-n"], input=text, text=True, capture_output=True, check=False)
+        result = subprocess.run([sh, "-n"], input=text, encoding="utf-8", capture_output=True, check=False)
         assert result.returncode == 0, result.stderr
 
 

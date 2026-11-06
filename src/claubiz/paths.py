@@ -25,7 +25,12 @@ def home_path() -> Path:
 
 
 def home() -> Path:
-    return ensure_private_dir(home_path())
+    path = home_path()
+    try:
+        hostos.check_data_location(path)
+    except hostos.HostError as exc:
+        raise UnsafePathError(str(exc)) from None
+    return ensure_private_dir(path)
 
 
 def ensure_private_dir(path: Path) -> Path:

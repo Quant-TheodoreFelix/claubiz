@@ -22,6 +22,8 @@ SECURE_BACKENDS = frozenset(
         "keyring.backends.Windows.WinVaultKeyring",
     }
 )
+WINDOWS_BACKEND = "keyring.backends.Windows.WinVaultKeyring"
+WINDOWS_PERSIST = "local machine"
 SCRUBBED_ENV = (
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -117,7 +119,10 @@ def _secure_backend():
     name = backend_name()
     if name not in SECURE_BACKENDS:
         raise SecretError(f"안전하지 않은 키링 백엔드: {name}")
-    return keyring.get_keyring()
+    backend = keyring.get_keyring()
+    if name == WINDOWS_BACKEND:
+        backend.persist = WINDOWS_PERSIST
+    return backend
 
 
 class KeychainStore:

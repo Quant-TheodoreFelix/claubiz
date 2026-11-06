@@ -5,6 +5,8 @@ from ._common import HostError, UnsupportedError
 
 if sys.platform == "win32":
     from .windows import (
+        check_data_location,
+        is_private,
         lock,
         open_fd,
         owned_by_me,
@@ -17,6 +19,8 @@ if sys.platform == "win32":
     )
 else:
     from .posix import (
+        check_data_location,
+        is_private,
         lock,
         open_fd,
         owned_by_me,
@@ -31,7 +35,9 @@ else:
 __all__ = [
     "HostError",
     "UnsupportedError",
+    "check_data_location",
     "is_link",
+    "is_private",
     "lock",
     "open_fd",
     "owned_by_me",

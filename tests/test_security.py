@@ -3,6 +3,7 @@ import os
 
 import httpx2
 import pytest
+from support import assert_private
 
 from claubiz.audit import AuditLog
 from claubiz.config import ApiConfig, Settings
@@ -63,7 +64,7 @@ def test_private_dir_permissions(tmp_path):
     path = tmp_path / "p"
     path.mkdir(mode=0o755)
     ensure_private_dir(path)
-    assert (path.stat().st_mode & 0o777) == 0o700
+    assert_private(path, 0o700)
 
 
 def test_domain_validation():
@@ -134,7 +135,7 @@ def test_audit_chain_detects_tampering(isolated_home):
     log.path.write_text("\n".join(lines) + "\n")
     ok, _, message = log.verify()
     assert not ok and "변조" in message
-    assert (log.path.stat().st_mode & 0o777) == 0o600
+    assert_private(log.path, 0o600)
 
 
 def test_default_settings_are_consistent():

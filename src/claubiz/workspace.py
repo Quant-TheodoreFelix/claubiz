@@ -531,5 +531,5 @@ def _remove_tree(path: Path) -> None:
         raise WorkspaceError(f"삭제 대상이 디렉터리가 아님: {path.name}")
     try:
         hostos.remove_tree(path)
-    except hostos.UnsupportedError as exc:
+    except hostos.HostError as exc:
         raise WorkspaceError(str(exc)) from None

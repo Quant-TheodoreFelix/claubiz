@@ -41,6 +41,14 @@ def restrict_file(path) -> None:
     os.chmod(path, 0o600)
 
 
+def is_private(path) -> bool:
+    return not os.lstat(path).st_mode & 0o077
+
+
+def check_data_location(path) -> None:
+    del path
+
+
 def replace(src, dst) -> None:
     os.replace(src, dst)
 

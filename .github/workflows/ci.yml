@@ -38,6 +38,8 @@ jobs:
       - run: uv sync --locked
       - run: uv run --frozen python -c "import platform, sys; print(sys.version, platform.machine())"
       - run: uv run --frozen pytest -q
+        env:
+          CLAUBIZ_TEST_CREDSTORE: "1"
 
   lint:
     runs-on: ubuntu-latest

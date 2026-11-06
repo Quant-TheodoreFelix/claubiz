@@ -32,8 +32,7 @@ def test_imports_without_posix_only_apis():
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX backend")
-def test_posix_lock_is_exclusive_across_descriptors(tmp_path):
+def test_lock_is_exclusive_across_descriptors(tmp_path):
     path = tmp_path / "x.lock"
     first = hostos.open_fd(path, os.O_RDWR | os.O_CREAT)
     second = hostos.open_fd(path, os.O_RDWR | os.O_CREAT)

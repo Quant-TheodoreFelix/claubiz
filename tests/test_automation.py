@@ -4,10 +4,12 @@ import email
 import io
 import json
 import os
+import sys
 from datetime import date, datetime, timedelta
 from email.policy import default as default_policy
 
 import pytest
+from support import assert_private
 from test_orchestrator import PROPOSED, FakeLLM, _setup
 
 from claubiz.actions import ActionError, ActionStore, parse_proposals, render_event
@@ -234,7 +236,8 @@ def test_approved_actions_write_safe_files(tmp_path):
 
     done = store.approve(mail.id)
     path = store.output_path(done)
-    assert path.parent == ws.root / "outbox" and path.suffix == ".eml" and path.stat().st_mode & 0o777 == 0o600
+    assert path.parent == ws.root / "outbox" and path.suffix == ".eml"
+    assert_private(path, 0o600)
     raw = path.read_bytes()
     parsed = email.message_from_bytes(raw, policy=default_policy)
     assert parsed["X-Unsent"] == "1" and parsed["To"] == "kim@example.com" and parsed["Bcc"] is None
@@ -319,6 +322,7 @@ async def test_concurrent_claims_across_handles():
     assert os.path.exists(ws.root / f"digest-{spec.id}.lock")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="launchd")
 def test_launch_agent_plist_and_install_with_fake_runner(monkeypatch):
     import plistlib
     import subprocess
