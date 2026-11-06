@@ -28,7 +28,7 @@ TEXT_EXTENSIONS = frozenset({".md", ".txt", ".csv", ".tsv", ".json", ".html", ".
 MAX_INPUT_BYTES = 5 * 1024 * 1024
 RUN_ID_RE = re.compile(r"^r\d{8}-\d{6}-[0-9a-f]{6}$")
 MAX_BRIEF_CHARS = 20000
-REPORT_FOOTER = "\n---\n실행 "
+REPORT_FOOTERS = ("\n---\n실행 ", "\n---\nRun ")
 EXPORT_NAME_RE = re.compile(r"[^\w가-힣 ._()-]+")
 CLASS_ORDER = ("public", "internal", "confidential")
 BUSINESS_TYPES: tuple[tuple[str, str], ...] = (
@@ -334,7 +334,7 @@ class Workspace:
         floor = report_classification(record)
         if CLASS_ORDER.index(classification) < CLASS_ORDER.index(floor):
             raise WorkspaceError(f"이 보고서는 {floor} 이상 등급으로만 가져올 수 있음")
-        body = report.rsplit(REPORT_FOOTER, 1)[0].strip()
+        body = strip_report_footer(report)
         goal = " ".join(str(record.get("goal", "")).split())[:200]
         header = (f"> 출처: 작업 영역 {source.name}, 실행 {run_id} ({str(record.get('created', ''))[:10]})\n"
                   f"> 목표: {goal}\n\n")
@@ -475,6 +475,11 @@ class Workspace:
         if not path.exists():
             return None
         return read_bytes_nofollow(path, 4 * 1024 * 1024).decode("utf-8")
+
+
+def strip_report_footer(report: str) -> str:
+    cut = max(report.rfind(marker) for marker in REPORT_FOOTERS)
+    return (report[:cut] if cut >= 0 else report).strip()
 
 
 def report_classification(record: dict) -> str:

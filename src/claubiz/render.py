@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 HANDOFF_RE = re.compile(r"<handoff>(.*?)</handoff>", re.DOTALL)
 STATUS_RE = re.compile(r"<status>\s*(ok|partial|insufficient)\s*</status>", re.IGNORECASE)
 URL_RE = re.compile(r"https?://[^\s)\]>\"'<`]+")
+UNVERIFIED_HEADINGS = ("### 확인되지 않은 링크", "### Unverified links")
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,11 @@ class RenderedNotes:
             lines += ["", "### 확인되지 않은 링크", "", "> 검색이나 페치 결과에 없던 주소임, 사용 전 확인 필요", ""]
             lines += [f"- {u}" for u in self.unverified]
         return "\n".join(lines) + "\n"
+
+
+def strip_unverified(text: str) -> str:
+    cut = min((i for i in (text.find(h) for h in UNVERIFIED_HEADINGS) if i >= 0), default=-1)
+    return text[:cut] if cut >= 0 else text
 
 
 def _md_escape(text: str) -> str:

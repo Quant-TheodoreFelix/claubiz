@@ -17,7 +17,7 @@ from .paths import confine, read_bytes_nofollow, write_private_text
 from .policy import scope_allows_web
 from .render import urls_in
 from .schedule import ScheduleError, parse_schedule
-from .workspace import REPORT_FOOTER, Workspace, WorkspaceError
+from .workspace import Workspace, WorkspaceError, strip_report_footer
 
 DIGEST_ID_RE = re.compile(r"^d[0-9a-f]{6}$")
 DEFAULT_DIGEST_MODEL = "claude-sonnet-5-5"
@@ -255,7 +255,7 @@ class DigestStore:
                     failures = spec.failures + 1
                 seen = list(spec.seen_urls)
                 if success and report:
-                    for url in urls_in(report.rsplit(REPORT_FOOTER, 1)[0]):
+                    for url in urls_in(strip_report_footer(report)):
                         if url in seen:
                             seen.remove(url)
                         seen.append(url)

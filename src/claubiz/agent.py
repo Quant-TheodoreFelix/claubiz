@@ -19,7 +19,7 @@ MAX_INTERVAL = 240
 TASK_XML = """<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>claubiz 정기 정리 확인</Description>
+    <Description>claubiz digest check</Description>
     <URI>{uri}</URI>
   </RegistrationInfo>
   <Triggers>

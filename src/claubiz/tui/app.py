@@ -44,7 +44,7 @@ from ..orchestrator import RunError
 from ..planner import estimate_plan, finish_estimate
 from ..playbooks import Playbook, all_playbooks
 from ..policy import scope_allows_inputs, scope_allows_web
-from ..workspace import REPORT_FOOTER, Workspace, WorkspaceError, new_run_id, report_classification
+from ..workspace import Workspace, WorkspaceError, new_run_id, report_classification, strip_report_footer
 from .compositor import install as install_compositor_fix
 from .jobs import FINISHED_PHASES, ActivityLog, Draft, Job, LogBuffer, clock_text
 from .modals import (
@@ -1706,7 +1706,7 @@ class ClaubizApp(App[None]):
                       f" · ${r.get('cost_total', 0):.3f}" for r in runs]
         report = self.ws.read_report(spec.last_success_run) if spec.last_success_run else None
         if report:
-            lines += ["", "---", "", report.rsplit(REPORT_FOOTER, 1)[0].strip()]
+            lines += ["", "---", "", strip_report_footer(report)]
         await preview.update("\n".join(lines))
 
     @on(DataTable.RowHighlighted, "#digests")

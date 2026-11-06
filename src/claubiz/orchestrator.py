@@ -49,8 +49,8 @@ from .prompts import (
     SYNTH_SYSTEM,
     WORKER_SYSTEM,
 )
-from .render import plain_text, render, unknown_urls, urls_in
-from .workspace import REPORT_FOOTER, RUN_ID_RE, Workspace, new_run_id
+from .render import plain_text, render, strip_unverified, unknown_urls, urls_in
+from .workspace import RUN_ID_RE, Workspace, new_run_id, strip_report_footer
 
 MAX_GOAL_CHARS = 4000
 MAX_TOKENS_CEILING = 64000
@@ -273,7 +273,7 @@ class Orchestrator:
 
     def _base_report(self, run_id: str) -> str:
         text = self.ws.read_report(run_id) or ""
-        text = text.rsplit("\n---\n실행 ", 1)[0].strip()
+        text = strip_report_footer(text)
         if self.ws.config.redact_pii:
             text, _ = redact_pii(text)
         if len(text) > MAX_BASE_REPORT_CHARS:
@@ -479,7 +479,7 @@ class Orchestrator:
             prior = self.ws.read_task_artifact(match.group(1), match.group(2)) if match else None
             if prior:
                 st.notes_md = prior
-                st.verified_urls = set(urls_in(prior.split("### 확인되지 않은 링크")[0]))
+                st.verified_urls = set(urls_in(strip_unverified(prior)))
                 st.handoff = session.context.reusable[task.reuse_ref]["handoff"]
                 st.status, st.effort, st.result_status = "reused", "-", "ok"
                 self._write_task(out_dir, st)
@@ -741,7 +741,7 @@ class Orchestrator:
         return next(name for name, rank in CLASS_RANK.items() if rank == top)
 
     def _report_text(self, body: str) -> str:
-        text = body.rsplit(REPORT_FOOTER, 1)[0].strip()
+        text = strip_report_footer(body)
         if self.ws.config.redact_pii:
             text, _ = redact_pii(text)
         if len(text) > HELPER_REPORT_CHARS:
@@ -863,7 +863,7 @@ class Orchestrator:
             handoff=str(info.get("handoff") or ""), result_status=str(info.get("result_status") or "ok"),
             sources=int(info.get("sources") or 0),
         )
-        st.verified_urls = set(urls_in(notes.split("### 확인되지 않은 링크")[0]))
+        st.verified_urls = set(urls_in(strip_unverified(notes)))
         if not st.handoff:
             st.handoff = notes[:600]
         return st
