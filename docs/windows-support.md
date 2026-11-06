@@ -118,7 +118,8 @@
 
 - `scripts/install.ps1.in`을 만들고 `release.py`가 같은 placeholder로 렌더링해서 `install.sh` 옆에 둠. `SHA256SUMS`와 Cloudflare `_headers`에도 추가함.
 - 한 줄 설치: `irm https://<배포 주소>/install.ps1 | iex`
-- 먼저 확인하고 실행하는 방법: 파일을 받아 `Get-FileHash`로 공개된 SHA-256과 비교한 뒤 `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`
+- 먼저 확인하고 실행하는 방법: 파일을 받아 `Get-FileHash`로 공개된 SHA-256과 비교한 뒤 `& ([scriptblock]::Create((Get-Content -Raw -Encoding UTF8 .\install.ps1)))`
+  - `-File`로 실행하지 않음. 파일이 BOM 없는 UTF-8이라 Windows PowerShell 5.1은 시스템 코드 페이지로 읽어서 한국어 문구가 깨짐
 - Windows PowerShell 5.1(기본 탑재)과 PowerShell 7을 지원하고, 5.1에서는 TLS 1.2를 강제함. HTTPS가 아닌 주소로 리디렉션되면 멈춤.
 - uv 0.13.1의 `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc` 해시를 기존 6개 타겟 옆에 고정함
 - 의존성: `uv.lock`을 확인해 보니 컴파일된 패키지(`jiter`, `pydantic-core`)에 `win_amd64`, `win_arm64` wheel이 있고, `cffi`와 `cryptography`는 Linux에서만 쓰임. 그래서 `--only-binary :all:` 해시 검증 설치가 두 Windows 아키텍처에서 그대로 됨.
