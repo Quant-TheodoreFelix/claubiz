@@ -153,6 +153,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           & schtasks.exe /Query /TN '\claubiz\digest' *> $null
           if ($LASTEXITCODE -eq 0) { throw 'task still registered' }
+          exit 0
       - name: uninstall
         shell: pwsh
         run: |
