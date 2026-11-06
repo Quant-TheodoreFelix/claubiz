@@ -233,15 +233,23 @@ function Save-ClaubizEnvironment {
     return $saved
 }
 
+function Clear-ClaubizVariable([string]$Name) {
+    Remove-Item -LiteralPath "Env:\$Name" -ErrorAction SilentlyContinue
+}
+
 function Restore-ClaubizEnvironment($Saved) {
     foreach ($name in $Saved.Keys) {
-        [Environment]::SetEnvironmentVariable($name, $Saved[$name], 'Process')
+        if ($null -eq $Saved[$name]) {
+            Clear-ClaubizVariable $name
+        } else {
+            Set-Item -LiteralPath "Env:\$name" -Value $Saved[$name]
+        }
     }
 }
 
 function Set-ClaubizUvEnvironment([string]$PrefixPath, [string]$Temp) {
     foreach ($name in $ClaubizIsolatedVars) {
-        [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+        Clear-ClaubizVariable $name
     }
     $env:UV_PYTHON_INSTALL_DIR = Join-Path $PrefixPath 'python'
     $env:UV_PYTHON_BIN_DIR = Join-Path $Temp 'python-bin'
@@ -261,7 +269,7 @@ function Test-ClaubizCommand([string]$Exe, [string]$Temp) {
     try {
         $result = Invoke-ClaubizQuiet $Exe @('--version')
     } finally {
-        $env:CLAUBIZ_HOME = $null
+        Clear-ClaubizVariable 'CLAUBIZ_HOME'
     }
     if ($result.Code -ne 0 -or $result.Output -ne "claubiz $ClaubizVersion") {
         Stop-ClaubizInstall "설치 확인 실패: $($result.Output)"
