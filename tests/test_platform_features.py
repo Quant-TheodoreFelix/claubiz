@@ -73,6 +73,24 @@ def test_task_scheduler_install_status_uninstall(fake_windows):
     assert not agent.task_xml_path().exists()
 
 
+def test_task_scheduler_uninstall_keeps_file_when_delete_fails(fake_windows):
+    agent.install(30, runner=lambda args, **kwargs: subprocess.CompletedProcess(args, 0, b"", b""))
+    path = agent.task_xml_path()
+
+    def delete_denied(args, **kwargs):
+        code = 1 if "/Delete" in args else 0
+        return subprocess.CompletedProcess(args, code, b"", "액세스가 거부되었습니다".encode())
+
+    with pytest.raises(agent.AgentError, match="등록 해제 실패"):
+        agent.uninstall(runner=delete_denied)
+    assert path.exists()
+
+    def not_registered(args, **kwargs):
+        return subprocess.CompletedProcess(args, 1, b"", b"")
+
+    assert agent.uninstall(runner=not_registered) and not path.exists()
+
+
 def test_background_output_goes_to_agent_log(fake_windows, monkeypatch):
     monkeypatch.setattr(sys, "stdout", None)
     monkeypatch.setattr(sys, "stderr", None)

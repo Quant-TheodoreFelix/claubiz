@@ -231,6 +231,10 @@ def uninstall(runner: Runner = subprocess.run) -> bool:
         result = runner([_schtasks(), "/Delete", "/TN", TASK_NAME, "/F"], check=False, capture_output=True,
                         timeout=30)
         deleted = result.returncode == 0
+        if not deleted:
+            query = runner([_schtasks(), "/Query", "/TN", TASK_NAME], check=False, capture_output=True, timeout=30)
+            if query.returncode == 0:
+                raise AgentError(tr("작업 스케줄러 등록 해제 실패: {detail}", detail=_detail(result)))
     else:
         runner(["/bin/launchctl", "bootout", f"{_domain()}/{LABEL}"], check=False, capture_output=True,
                timeout=30)

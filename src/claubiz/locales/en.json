@@ -633,6 +633,7 @@
   "작업 노트 없음": "No task notes",
   "작업 수 제한으로 {count}개 작업을 제외함": "Dropped {count} tasks because of the task limit",
   "작업 스케줄러 등록 실패: {detail}": "Task Scheduler registration failed: {detail}",
+  "작업 스케줄러 등록 해제 실패: {detail}": "Task Scheduler unregistration failed: {detail}",
   "작업 스케줄러 등록: 됨": "Task Scheduler: registered",
   "작업 스케줄러 등록: 안 됨": "Task Scheduler: not registered",
   "작업 스케줄러에 {task} 작업을 등록해 {interval}분마다 정기 정리를 확인할까?": "Register the {task} task in Task Scheduler to check digests every {interval} minutes?",
