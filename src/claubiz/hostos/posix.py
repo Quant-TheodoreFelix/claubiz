@@ -2,6 +2,7 @@ import fcntl
 import os
 import shutil
 import stat
+from pathlib import Path
 
 from ._common import UnsupportedError
 
@@ -35,6 +36,10 @@ def restrict_dir(path, st: os.stat_result | None = None) -> None:
     st = st or os.lstat(path)
     if st.st_mode & 0o077:
         os.chmod(path, 0o700)
+
+
+def make_dir(path) -> None:
+    Path(path).mkdir(mode=0o700, parents=True, exist_ok=True)
 
 
 def restrict_file(path) -> None:

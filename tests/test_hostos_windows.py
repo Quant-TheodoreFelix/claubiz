@@ -28,8 +28,11 @@ LOCK_PROBE = (
 
 
 def test_private_dir_is_owner_only_and_children_inherit(tmp_path):
+    from claubiz.hostos import windows
+
     folder = ensure_private_dir(tmp_path / "data")
     assert hostos.is_private(folder) and hostos.owned_by_me(folder)
+    assert windows._owner(folder) == windows.current_user_sid()
     (folder / "plain.txt").write_text("x", encoding="utf-8")
     (folder / "sub").mkdir()
     assert hostos.is_private(folder / "plain.txt")
@@ -40,6 +43,9 @@ def test_files_created_outside_data_dir_are_private(tmp_path):
     target = tmp_path / "out.bin"
     os.close(hostos.open_fd(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL))
     assert hostos.is_private(target) and hostos.owned_by_me(target)
+    from claubiz.hostos import windows
+
+    assert windows._owner(target) == windows.current_user_sid()
     with pytest.raises(FileExistsError):
         hostos.open_fd(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
     with pytest.raises(FileNotFoundError):

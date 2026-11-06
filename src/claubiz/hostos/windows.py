@@ -9,7 +9,8 @@ from pathlib import Path
 from . import winapi as w
 from ._common import HostError
 
-TRUSTED_SIDS = frozenset({"S-1-5-18", "S-1-5-32-544"})
+ADMINISTRATORS_SID = "S-1-5-32-544"
+TRUSTED_SIDS = frozenset({"S-1-5-18", ADMINISTRATORS_SID})
 LOCK_OFFSET_LOW = 0xFFFFFFFE
 LOCK_OFFSET_HIGH = 0x7FFFFFFF
 RETRY_DELAYS = (0.02, 0.05, 0.1, 0.2, 0.4, 0.8)
@@ -32,22 +33,32 @@ def _sid_string(sid) -> str:
         w.kernel32().LocalFree(out)
 
 
-@cache
-def current_user_sid() -> str:
+def _token_information(kind: int) -> ctypes.Array:
     k32, adv = w.kernel32(), w.advapi32()
     token = ctypes.c_void_p()
     if not adv.OpenProcessToken(k32.GetCurrentProcess(), w.TOKEN_QUERY, ctypes.byref(token)):
         raise w.error(w.last_error())
     try:
         size = ctypes.c_ulong(0)
-        adv.GetTokenInformation(token, w.TOKEN_USER_CLASS, None, 0, ctypes.byref(size))
-        buffer = ctypes.create_string_buffer(size.value)
-        if not adv.GetTokenInformation(token, w.TOKEN_USER_CLASS, buffer, size, ctypes.byref(size)):
+        adv.GetTokenInformation(token, kind, None, 0, ctypes.byref(size))
+        buffer = ctypes.create_string_buffer(max(size.value, 8))
+        if not adv.GetTokenInformation(token, kind, buffer, len(buffer), ctypes.byref(size)):
             raise w.error(w.last_error())
-        sid = ctypes.c_void_p.from_buffer(buffer).value
-        return _sid_string(sid)
+        return buffer
     finally:
         k32.CloseHandle(token)
+
+
+@cache
+def current_user_sid() -> str:
+    buffer = _token_information(w.TOKEN_USER_CLASS)
+    return _sid_string(ctypes.c_void_p.from_buffer(buffer).value)
+
+
+@cache
+def process_elevated() -> bool:
+    buffer = _token_information(w.TOKEN_ELEVATION_CLASS)
+    return bool(ctypes.c_uint32.from_buffer(buffer).value)
 
 
 class _Descriptor:
@@ -57,6 +68,12 @@ class _Descriptor:
             sddl, w.SDDL_REVISION_1, ctypes.byref(self.pointer), None
         ):
             raise w.error(w.last_error())
+
+    def owner(self) -> ctypes.c_void_p:
+        sid, defaulted = ctypes.c_void_p(), ctypes.c_long(0)
+        if not w.advapi32().GetSecurityDescriptorOwner(self.pointer, ctypes.byref(sid), ctypes.byref(defaulted)):
+            raise w.error(w.last_error())
+        return sid
 
     def dacl(self) -> ctypes.c_void_p:
         present, defaulted, acl = ctypes.c_long(0), ctypes.c_long(0), ctypes.c_void_p()
@@ -73,7 +90,8 @@ class _Descriptor:
 
 def _owner_only(directory: bool) -> _Descriptor:
     inherit = "OICI" if directory else ""
-    return _Descriptor(f"D:PAI(A;{inherit};FA;;;{current_user_sid()})")
+    sid = current_user_sid()
+    return _Descriptor(f"O:{sid}D:PAI(A;{inherit};FA;;;{sid})")
 
 
 def _create(path, access: int, disposition: int, flags: int, attributes=None) -> int:
@@ -250,13 +268,18 @@ class _Security:
             self.descriptor = ctypes.c_void_p()
 
 
-def owned_by_me(path, st: os.stat_result | None = None) -> bool:
-    del st
+def _owner(path) -> str | None:
     security = _Security(path, w.OWNER_SECURITY_INFORMATION)
     try:
-        return bool(security.owner) and _sid_string(security.owner) == current_user_sid()
+        return _sid_string(security.owner) if security.owner else None
     finally:
         security.close()
+
+
+def owned_by_me(path, st: os.stat_result | None = None) -> bool:
+    del st
+    owner = _owner(path)
+    return owner == current_user_sid() or (owner == ADMINISTRATORS_SID and process_elevated())
 
 
 def is_private(path) -> bool:
@@ -274,11 +297,12 @@ def is_private(path) -> bool:
 def _set_owner_only(path, directory: bool) -> None:
     descriptor = _owner_only(directory)
     try:
-        handle = _open_meta(path, w.READ_CONTROL | w.WRITE_DAC)
+        handle = _open_meta(path, w.READ_CONTROL | w.WRITE_DAC | w.WRITE_OWNER)
         try:
             code = w.advapi32().SetSecurityInfo(
-                handle, w.SE_FILE_OBJECT, w.DACL_SECURITY_INFORMATION | w.PROTECTED_DACL_SECURITY_INFORMATION,
-                None, None, descriptor.dacl(), None,
+                handle, w.SE_FILE_OBJECT,
+                w.OWNER_SECURITY_INFORMATION | w.DACL_SECURITY_INFORMATION | w.PROTECTED_DACL_SECURITY_INFORMATION,
+                descriptor.owner(), None, descriptor.dacl(), None,
             )
         finally:
             _close(handle)
@@ -290,8 +314,24 @@ def _set_owner_only(path, directory: bool) -> None:
 
 def restrict_dir(path, st: os.stat_result | None = None) -> None:
     del st
-    if not is_private(path):
+    if not is_private(path) or _owner(path) != current_user_sid():
         _set_owner_only(path, True)
+
+
+def make_dir(path) -> None:
+    path = Path(path)
+    if path.is_dir():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = _owner_only(True)
+    try:
+        attributes = w.SecurityAttributes(ctypes.sizeof(w.SecurityAttributes), descriptor.pointer.value, False)
+        if not w.kernel32().CreateDirectoryW(str(path), ctypes.byref(attributes)):
+            code = w.last_error()
+            if code != w.ERROR_ALREADY_EXISTS:
+                raise w.error(code, path)
+    finally:
+        descriptor.close()
 
 
 def restrict_file(path) -> None:

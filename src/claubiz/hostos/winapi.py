@@ -6,6 +6,7 @@ GENERIC_READ = 0x80000000
 GENERIC_WRITE = 0x40000000
 READ_CONTROL = 0x00020000
 WRITE_DAC = 0x00040000
+WRITE_OWNER = 0x00080000
 FILE_READ_ATTRIBUTES = 0x0080
 FILE_SHARE_ALL = 0x1 | 0x2 | 0x4
 CREATE_NEW = 1
@@ -25,6 +26,7 @@ ERROR_ACCESS_DENIED = 5
 ERROR_SHARING_VIOLATION = 32
 ERROR_LOCK_VIOLATION = 33
 ERROR_INSUFFICIENT_BUFFER = 122
+ERROR_ALREADY_EXISTS = 183
 ERROR_IO_PENDING = 997
 SE_FILE_OBJECT = 1
 OWNER_SECURITY_INFORMATION = 0x1
@@ -33,6 +35,7 @@ PROTECTED_DACL_SECURITY_INFORMATION = 0x80000000
 SE_DACL_PROTECTED = 0x1000
 TOKEN_QUERY = 0x8
 TOKEN_USER_CLASS = 1
+TOKEN_ELEVATION_CLASS = 20
 SDDL_REVISION_1 = 1
 ACL_SIZE_INFORMATION_CLASS = 2
 ACCESS_ALLOWED_ACE_TYPE = 0
@@ -113,6 +116,7 @@ def kernel32():
           ctypes.POINTER(Overlapped))
     _bind(lib, "GetCurrentProcess", wintypes.HANDLE)
     _bind(lib, "LocalFree", PVOID, PVOID)
+    _bind(lib, "CreateDirectoryW", wintypes.BOOL, wintypes.LPCWSTR, PVOID)
     _bind(lib, "GetDriveTypeW", wintypes.UINT, wintypes.LPCWSTR)
     _bind(lib, "GetVolumePathNameW", wintypes.BOOL, wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
     _bind(lib, "GetVolumeInformationW", wintypes.BOOL, wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD,
@@ -136,6 +140,7 @@ def advapi32():
           PVOID, PVOID)
     _bind(lib, "GetSecurityDescriptorDacl", wintypes.BOOL, PVOID, ctypes.POINTER(wintypes.BOOL), PPVOID,
           ctypes.POINTER(wintypes.BOOL))
+    _bind(lib, "GetSecurityDescriptorOwner", wintypes.BOOL, PVOID, PPVOID, ctypes.POINTER(wintypes.BOOL))
     _bind(lib, "GetSecurityDescriptorControl", wintypes.BOOL, PVOID, ctypes.POINTER(wintypes.WORD),
           ctypes.POINTER(wintypes.DWORD))
     _bind(lib, "GetAclInformation", wintypes.BOOL, PVOID, PVOID, wintypes.DWORD, ctypes.c_int)
