@@ -142,7 +142,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $xml = [xml](& schtasks.exe /Query /TN '\claubiz\digest' /XML | Out-String)
           if ($xml.Task.Actions.Exec.Command -notlike '*\venv\Scripts\pythonw.exe') { throw "unexpected command: $($xml.Task.Actions.Exec.Command)" }
-          if ($xml.Task.Principals.Principal.RunLevel -ne 'LeastPrivilege') { throw 'task is not least privilege' }
+          if ($xml.Task.Principals.Principal.RunLevel -eq 'HighestAvailable') { throw 'task runs elevated' }
+          if ($xml.Task.Principals.Principal.LogonType -ne 'InteractiveToken') { throw 'task stores credentials' }
           & $exe agent status
           $script = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 "$env:RUNNER_TEMP\site\install.ps1"))
           $refused = $false
