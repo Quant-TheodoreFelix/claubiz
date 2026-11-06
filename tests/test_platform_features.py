@@ -17,6 +17,8 @@ SID = "S-1-5-21-1000-2000-3000-1001"
 
 @pytest.fixture
 def fake_windows(monkeypatch):
+    if sys.platform == "win32":
+        return
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(windows, "current_user_sid", lambda: SID)
     monkeypatch.setattr(windows, "system_directory", lambda: str(Path("C:/Windows/System32")))

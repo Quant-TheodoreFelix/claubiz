@@ -88,7 +88,7 @@ def cmd_init(args) -> int:
     path = write_default_config(overwrite=args.force, workspace_id=args.workspace_id or "")
     load_settings()
     console.print(f"설정 파일: {path}")
-    console.print(f"데이터 폴더: {home()} (권한 700)")
+    console.print(f"데이터 폴더: {home()} ({'현재 사용자 전용' if os.name == 'nt' else '권한 700'})")
     return 0
 
 

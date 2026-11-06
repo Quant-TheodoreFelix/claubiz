@@ -728,7 +728,10 @@ class ClaubizApp(App[None]):
             table.update_cell(job.run_id, "cost", f"${self.runtime.ledger.spent_run(job.run_id):.3f}")
 
     async def _show_preview(self, run_id: str | None) -> None:
-        preview = self.query_one("#run-preview", Markdown)
+        try:
+            preview = self.query_one("#run-preview", Markdown)
+        except NoMatches:
+            return
         if run_id is None or run_id not in self.history:
             await preview.update("실행 기록이 없습니다. 실행 탭에서 목표를 입력하고 F5로 계획하거나 F9로 바로 실행할 수 있습니다.")
             return
@@ -1680,7 +1683,10 @@ class ClaubizApp(App[None]):
             table.update_cell(digest_id, key, value)
 
     async def _show_digest_preview(self, digest_id: str | None) -> None:
-        preview = self.query_one("#digest-preview", Markdown)
+        try:
+            preview = self.query_one("#digest-preview", Markdown)
+        except NoMatches:
+            return
         spec = self.digest_specs.get(digest_id or "")
         if spec is None or self.ws is None:
             await preview.update(
@@ -1928,7 +1934,10 @@ class ClaubizApp(App[None]):
         self.call_later(self._show_action_preview, self._cursor_key("#action-list"))
 
     async def _show_action_preview(self, action_id: str | None) -> None:
-        preview = self.query_one("#action-preview", Markdown)
+        try:
+            preview = self.query_one("#action-preview", Markdown)
+        except NoMatches:
+            return
         action = self.action_items.get(action_id or "")
         if action is None:
             await preview.update(
