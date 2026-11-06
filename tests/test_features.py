@@ -181,3 +181,13 @@ async def test_generate_brief_records_cost_and_audit():
     assert "a@b.com" not in message and "<operator_notes>" in message
     ok, _, _ = runtime.audit.verify()
     assert ok
+
+
+def test_import_rejects_windows_reserved_names(tmp_path):
+    ws = Workspace.create(WorkspaceConfig(name="names"))
+    memo = tmp_path / "memo.md"
+    memo.write_text("메모", encoding="utf-8")
+    for bad in ("aux.md", "nul.txt", "report.md."):
+        with pytest.raises(WorkspaceError, match="사용할 수 없는 파일 이름"):
+            ws.import_file(memo, "internal", name=bad)
+    assert ws.import_file(memo, "internal", name="auxiliary.md").name == "auxiliary.md"

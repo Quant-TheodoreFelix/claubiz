@@ -11,7 +11,15 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from . import hostos
-from .paths import confine, ensure_private_dir, home, home_path, read_bytes_nofollow, write_private_text
+from .paths import (
+    confine,
+    ensure_private_dir,
+    home,
+    home_path,
+    portable_name_problem,
+    read_bytes_nofollow,
+    write_private_text,
+)
 from .policy import Classification, Scope, scope_allows_inputs, validate_domains
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
@@ -280,6 +288,9 @@ class Workspace:
         target_name = name or src.name
         if not FILE_RE.fullmatch(target_name) or target_name == "manifest.json":
             raise WorkspaceError(f"사용할 수 없는 파일 이름: {target_name}")
+        problem = portable_name_problem(target_name)
+        if problem:
+            raise WorkspaceError(f"사용할 수 없는 파일 이름: {problem}")
         raw = read_bytes_nofollow(src, MAX_INPUT_BYTES)
         encoding = "utf-8"
         try:

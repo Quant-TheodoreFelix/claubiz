@@ -12,6 +12,21 @@ class UnsafePathError(PermissionError):
 
 
 DEFAULT_DIR = ".claubiz"
+RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    | {f"{prefix}{digit}" for prefix in ("COM", "LPT") for digit in "123456789\u00b9\u00b2\u00b3"}
+)
+INVALID_NAME_CHARS = frozenset('<>:"/\\|?*')
+
+
+def portable_name_problem(name: str) -> str | None:
+    if any(ch in INVALID_NAME_CHARS or ord(ch) < 32 for ch in name):
+        return f"쓸 수 없는 문자가 있음 (<>:\"/\\|?* 와 제어 문자): {name!r}"
+    if name.endswith((" ", ".")):
+        return f"점이나 공백으로 끝나는 이름은 쓸 수 없음: {name!r}"
+    if name.split(".", 1)[0].rstrip(" ").upper() in RESERVED_NAMES:
+        return f"Windows 예약 이름은 쓸 수 없음: {name!r}"
+    return None
 
 
 def home_path() -> Path:
@@ -34,7 +49,7 @@ def home() -> Path:
 
 
 def ensure_private_dir(path: Path) -> Path:
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    hostos.make_dir(path)
     st = path.lstat()
     if hostos.stat_is_link(st) or not stat.S_ISDIR(st.st_mode):
         raise UnsafePathError(f"디렉터리가 아니거나 심볼릭 링크임: {path}")
@@ -49,6 +64,9 @@ def confine(root: Path, *parts: str) -> Path:
     for part in parts:
         if not part or part in (".", "..") or "/" in part or "\\" in part or "\x00" in part:
             raise UnsafePathError(f"허용되지 않는 경로 요소: {part!r}")
+        problem = portable_name_problem(part)
+        if problem:
+            raise UnsafePathError(problem)
     candidate = base.joinpath(*parts)
     resolved = candidate.resolve(strict=False)
     if not resolved.is_relative_to(base):

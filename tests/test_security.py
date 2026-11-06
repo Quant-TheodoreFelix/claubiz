@@ -60,6 +60,15 @@ def test_confine_rejects_traversal(tmp_path):
     assert confine(root, "ok.md") == root.resolve() / "ok.md"
 
 
+def test_confine_rejects_names_that_break_on_windows(tmp_path):
+    root = ensure_private_dir(tmp_path / "ws")
+    for bad in ("CON", "nul.txt", "Com1.md", "LPT\u00b9", "con .txt", "a.", "a ", "a:b", "x|y", "q?", "t\tab"):
+        with pytest.raises(UnsafePathError):
+            confine(root, bad)
+    for good in ("console.txt", "conx", "report.md", "한글 자료 (1).txt", "digest-ab12.lock"):
+        assert confine(root, good).name == good
+
+
 def test_private_dir_permissions(tmp_path):
     path = tmp_path / "p"
     path.mkdir(mode=0o755)
