@@ -1,11 +1,12 @@
 import asyncio
 import json
+import subprocess
+import sys
 from datetime import datetime, timedelta
 
 from test_tui import SIZE, make_app
 from textual.widgets import DataTable, Input, Select, Static, Switch, TabbedContent, TextArea
 
-from claubiz import actions as actions_module
 from claubiz.actions import ActionStore
 from claubiz.digest import DigestStore, make_spec
 from claubiz.knowledge import KnowledgeStore
@@ -81,8 +82,8 @@ async def test_create_workspace_with_business_profile():
 async def test_run_feeds_knowledge_and_approval_inbox(tmp_path, monkeypatch):
     ws = Workspace.create(WorkspaceConfig(name="acme"))
     opened = []
-    monkeypatch.setattr(actions_module.subprocess, "run", lambda args, **kw: opened.append(args))
-    monkeypatch.setattr(actions_module.sys, "platform", "darwin")
+    monkeypatch.setattr(subprocess, "run", lambda args, **kw: opened.append(args))
+    monkeypatch.setattr(sys, "platform", "darwin")
     app = make_app("acme")
     async with app.run_test(size=SIZE) as pilot:
         await _direct(app, pilot)

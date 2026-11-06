@@ -494,7 +494,8 @@ def check_export_dir(raw: str) -> Path:
         raise WorkspaceError("복사할 폴더를 입력해야 함")
     folder = Path(os.path.expanduser(raw.strip()))
     if not folder.is_absolute():
-        raise WorkspaceError("폴더는 ~/ 또는 / 로 시작하는 절대 경로여야 함")
+        start = "~\\ 또는 C:\\ 처럼" if os.sep == "\\" else "~/ 또는 / 로"
+        raise WorkspaceError(f"폴더는 {start} 시작하는 절대 경로여야 함")
     try:
         st = folder.lstat()
     except FileNotFoundError:

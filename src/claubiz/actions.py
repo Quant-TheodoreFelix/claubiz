@@ -5,8 +5,6 @@ import json
 import os
 import re
 import stat
-import subprocess
-import sys
 import time
 import uuid
 from datetime import UTC, date, datetime, timedelta
@@ -532,8 +530,10 @@ class ActionStore:
             raise ActionError("만든 파일이 승인 뒤 바뀌어 열지 않음")
         if path.suffix.lstrip(".") not in OPENABLE:
             raise ActionError("열 수 없는 형식")
-        if sys.platform != "darwin":
-            raise ActionError("파일 열기는 macOS에서만 지원함")
-        subprocess.run(["/usr/bin/open", str(path)], check=True, timeout=15,
-                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            hostos.open_with_default_app(path)
+        except hostos.UnsupportedError as exc:
+            raise ActionError(str(exc)) from None
+        except OSError as exc:
+            raise ActionError(f"파일을 열지 못함, 이 형식에 연결된 앱이 있는지 확인: {exc.strerror or exc}") from None
         return path

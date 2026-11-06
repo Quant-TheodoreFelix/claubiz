@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from . import __version__, eventfmt
+from . import __version__, eventfmt, hostos
 from .actions import TYPE_LABELS, ActionError, ActionStore
 from .agent import AgentError
 from .audit import AuditLog
@@ -354,16 +354,18 @@ def cmd_digest_run(args) -> int:
 def cmd_agent(args) -> int:
     from . import agent
 
+    windows = sys.platform == "win32"
     if args.agent_cmd == "install":
-        if not args.yes and not _confirm(
-            f"~/Library/LaunchAgents에 {agent.LABEL}을 등록해 {args.interval}분마다 정기 정리를 확인할까?"
-        ):
+        where = (f"작업 스케줄러에 {agent.TASK_NAME} 작업을" if windows
+                 else f"~/Library/LaunchAgents에 {agent.LABEL}을")
+        if not args.yes and not _confirm(f"{where} 등록해 {args.interval}분마다 정기 정리를 확인할까?"):
             return 1
         path = agent.install(args.interval)
         AuditLog().append("agent.installed", path=str(path), interval=args.interval)
         console.print(f"등록 완료: {path}")
         console.print(f"로그: {agent.log_path()}")
-        console.print("[yellow]처음 실행될 때 macOS가 키체인 접근 허용을 물을 수 있음[/]")
+        if not windows:
+            console.print("[yellow]처음 실행될 때 macOS가 키체인 접근 허용을 물을 수 있음[/]")
         return 0
     if args.agent_cmd == "uninstall":
         removed = agent.uninstall()
@@ -371,8 +373,8 @@ def cmd_agent(args) -> int:
         console.print("등록 해제 완료" if removed else "등록된 항목이 없음")
         return 0
     installed, loaded = agent.status()
-    console.print(f"등록 파일: {'있음' if installed else '없음'} ({agent.plist_path()})")
-    console.print(f"launchd 로드: {'됨' if loaded else '안 됨'}")
+    console.print(f"등록 파일: {'있음' if installed else '없음'} ({agent.registration_path()})")
+    console.print(f"{'작업 스케줄러' if windows else 'launchd'} 등록: {'됨' if loaded else '안 됨'}")
     return 0
 
 
@@ -735,6 +737,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def prepare_stdio() -> None:
+    if sys.platform != "win32":
+        return
+    if sys.stdout is None or sys.stderr is None:
+        from .agent import log_path
+
+        fd = hostos.open_fd(log_path(), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        stream = os.fdopen(fd, "a", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stdout or stream
+        sys.stderr = sys.stderr or stream
+    for stream in (sys.stdout, sys.stderr):
+        encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
+        if encoding != "utf8" and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
     install_log_redaction()
     scrub_credential_env()
@@ -742,6 +760,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.home:
         os.environ[HOME_ENV] = args.home
+    prepare_stdio()
     if args.command is None:
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             parser.print_help()

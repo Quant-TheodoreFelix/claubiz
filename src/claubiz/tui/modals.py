@@ -405,10 +405,26 @@ def match_files(index: list[FileEntry], query: str, limit: int = MATCH_LIMIT) ->
     return [r[3] for r in ranked[:limit]]
 
 
+SEPARATORS = "/\\" if os.sep == "\\" else "/"
+DRIVE_RE = re.compile(r"^[A-Za-z]:")
+
+
+def folder_hint(path: Path | str) -> str:
+    text = str(path).replace(str(Path.home()), "~", 1)
+    return text.rstrip(SEPARATORS) + os.sep
+
+
+def looks_like_path(raw: str) -> bool:
+    if raw.startswith(("~", "./", "../")) or any(sep in raw for sep in SEPARATORS):
+        return True
+    return os.sep == "\\" and bool(DRIVE_RE.match(raw))
+
+
 def list_directory(raw: str, base: Path, excluded: Path) -> list[FileEntry]:
-    expanded = os.path.expanduser(raw if raw != "~" else "~/")
-    folder_text, _, prefix = expanded.rpartition("/")
-    folder = Path(folder_text or "/")
+    expanded = os.path.expanduser(raw if raw != "~" else "~" + os.sep)
+    cut = max(expanded.rfind(sep) for sep in SEPARATORS)
+    folder_text, prefix = expanded[: cut + 1], expanded[cut + 1 :]
+    folder = Path(folder_text or os.sep)
     if not folder.is_absolute():
         folder = base / folder
     if hostos.is_link(folder) or not folder.is_dir() or _excluded(folder, excluded):
@@ -431,7 +447,7 @@ def list_directory(raw: str, base: Path, excluded: Path) -> list[FileEntry]:
             path = Path(entry.path)
             if entry.is_dir(follow_symlinks=False):
                 if not _excluded(path, excluded):
-                    dirs.append(FileEntry(path, True, 0, entry.name + "/"))
+                    dirs.append(FileEntry(path, True, 0, entry.name + os.sep))
             elif entry.is_file(follow_symlinks=False) and path.suffix.lower() in TEXT_EXTENSIONS:
                 files.append(FileEntry(path, False, entry.stat(follow_symlinks=False).st_size, entry.name))
         except OSError:
@@ -525,7 +541,7 @@ class ImportModal(FormModal):
         raw = value.strip().removeprefix("@")
         if not value.strip():
             self.matches = []
-        elif raw.startswith(("/", "~", "./", "../")) or "/" in raw:
+        elif looks_like_path(raw):
             self.matches = list_directory(raw, self.base_dir, self.excluded)
         elif self.index is None:
             self.matches = []
@@ -557,8 +573,7 @@ class ImportModal(FormModal):
     def _pick(self, entry: FileEntry) -> None:
         field = self.query_one("#f-path", Input)
         if entry.is_dir:
-            shown = str(entry.path).replace(str(Path.home()), "~", 1)
-            field.value = shown.rstrip("/") + "/"
+            field.value = folder_hint(entry.path)
             field.cursor_position = len(field.value)
             return
         self._add(entry)
@@ -822,7 +837,7 @@ class ExportModal(FormModal):
                 ),
                 classes="modal-sub",
             )
-            yield Input(value=self.start_dir, placeholder="~/Documents/", id="x-path")
+            yield Input(value=self.start_dir, placeholder=folder_hint(Path.home() / "Documents"), id="x-path")
             yield OptionList(id="x-dirs")
             yield Static("", classes="modal-error")
             with Horizontal(classes="modal-actions"):
@@ -857,7 +872,7 @@ class ExportModal(FormModal):
 
     def _enter(self, entry: FileEntry) -> None:
         field = self.query_one("#x-path", Input)
-        field.value = str(entry.path).replace(str(Path.home()), "~", 1).rstrip("/") + "/"
+        field.value = folder_hint(entry.path)
         field.cursor_position = len(field.value)
         field.focus()
 

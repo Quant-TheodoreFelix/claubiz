@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 from ._common import HostError, UnsupportedError
@@ -43,6 +44,7 @@ __all__ = [
     "lock",
     "make_dir",
     "open_fd",
+    "open_with_default_app",
     "owned_by_me",
     "remove_tree",
     "replace",
@@ -51,6 +53,16 @@ __all__ = [
     "stat_is_link",
     "unlock",
 ]
+
+
+def open_with_default_app(path) -> None:
+    if sys.platform == "darwin":
+        subprocess.run(["/usr/bin/open", str(path)], check=True, timeout=15, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif sys.platform == "win32":
+        os.startfile(str(path), "open")
+    else:
+        raise UnsupportedError("파일 열기는 macOS와 Windows에서만 지원함")
 
 
 def is_link(path) -> bool:
