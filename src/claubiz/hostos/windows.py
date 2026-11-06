@@ -33,16 +33,18 @@ def _sid_string(sid) -> str:
         w.kernel32().LocalFree(out)
 
 
-def _token_information(kind: int) -> ctypes.Array:
+def _token_information(kind: int, size: int | None = None) -> ctypes.Array:
     k32, adv = w.kernel32(), w.advapi32()
     token = ctypes.c_void_p()
     if not adv.OpenProcessToken(k32.GetCurrentProcess(), w.TOKEN_QUERY, ctypes.byref(token)):
         raise w.error(w.last_error())
     try:
-        size = ctypes.c_ulong(0)
-        adv.GetTokenInformation(token, kind, None, 0, ctypes.byref(size))
-        buffer = ctypes.create_string_buffer(max(size.value, 8))
-        if not adv.GetTokenInformation(token, kind, buffer, len(buffer), ctypes.byref(size)):
+        needed = ctypes.c_ulong(0)
+        if size is None:
+            adv.GetTokenInformation(token, kind, None, 0, ctypes.byref(needed))
+            size = needed.value
+        buffer = ctypes.create_string_buffer(size)
+        if not adv.GetTokenInformation(token, kind, buffer, size, ctypes.byref(needed)):
             raise w.error(w.last_error())
         return buffer
     finally:
@@ -57,7 +59,7 @@ def current_user_sid() -> str:
 
 @cache
 def process_elevated() -> bool:
-    buffer = _token_information(w.TOKEN_ELEVATION_CLASS)
+    buffer = _token_information(w.TOKEN_ELEVATION_CLASS, ctypes.sizeof(ctypes.c_uint32))
     return bool(ctypes.c_uint32.from_buffer(buffer).value)
 
 
@@ -282,16 +284,20 @@ def owned_by_me(path, st: os.stat_result | None = None) -> bool:
     return owner == current_user_sid() or (owner == ADMINISTRATORS_SID and process_elevated())
 
 
-def is_private(path) -> bool:
+def _acl_state(path) -> tuple[bool, bool]:
     security = _Security(path, w.DACL_SECURITY_INFORMATION)
     try:
         sids = security.allowed_sids()
-        if sids is None or not security.protected():
-            return False
+        if sids is None:
+            return False, False
         allowed = TRUSTED_SIDS | {current_user_sid()}
-        return all(sid in allowed for sid in sids)
+        return all(sid in allowed for sid in sids), security.protected()
     finally:
         security.close()
+
+
+def is_private(path) -> bool:
+    return _acl_state(path)[0]
 
 
 def _set_owner_only(path, directory: bool) -> None:
@@ -314,7 +320,8 @@ def _set_owner_only(path, directory: bool) -> None:
 
 def restrict_dir(path, st: os.stat_result | None = None) -> None:
     del st
-    if not is_private(path) or _owner(path) != current_user_sid():
+    private, protected = _acl_state(path)
+    if not (private and protected) or _owner(path) != current_user_sid():
         _set_owner_only(path, True)
 
 
@@ -374,13 +381,26 @@ def remove_tree(path) -> None:
         for entry in items:
             st = entry.stat(follow_symlinks=False)
             if stat_is_link(st):
-                raise HostError(f"링크가 있어 삭제를 멈춤: {entry.path}")
+                if getattr(st, "st_file_attributes", 0) & w.FILE_ATTRIBUTE_DIRECTORY:
+                    _retry(os.rmdir, entry.path)
+                else:
+                    _unlink(entry.path)
+                continue
             if stat.S_ISDIR(st.st_mode):
                 pending.append(entry.path)
             else:
                 _unlink(entry.path)
     for folder in reversed(folders):
         _retry(os.rmdir, folder)
+
+
+@cache
+def system_directory() -> str:
+    buffer = ctypes.create_unicode_buffer(512)
+    length = w.kernel32().GetSystemDirectoryW(buffer, len(buffer))
+    if not length or length >= len(buffer):
+        raise w.error(w.last_error())
+    return buffer.value
 
 
 def _volume_root(path: Path) -> str:

@@ -94,9 +94,8 @@ def test_junctions_count_as_links(tmp_path):
     holder = tmp_path / "holder"
     holder.mkdir()
     _winapi.CreateJunction(str(target), str(holder / "inner"))
-    with pytest.raises(hostos.HostError):
-        hostos.remove_tree(holder)
-    assert (target / "f.txt").exists()
+    hostos.remove_tree(holder)
+    assert not holder.exists() and (target / "f.txt").exists()
 
 
 def test_remove_tree_handles_read_only_files(tmp_path):

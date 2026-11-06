@@ -14,6 +14,7 @@ CREATE_ALWAYS = 2
 OPEN_EXISTING = 3
 OPEN_ALWAYS = 4
 TRUNCATE_EXISTING = 5
+FILE_ATTRIBUTE_DIRECTORY = 0x10
 FILE_ATTRIBUTE_NORMAL = 0x80
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
@@ -118,6 +119,7 @@ def kernel32():
     _bind(lib, "LocalFree", PVOID, PVOID)
     _bind(lib, "CreateDirectoryW", wintypes.BOOL, wintypes.LPCWSTR, PVOID)
     _bind(lib, "GetDriveTypeW", wintypes.UINT, wintypes.LPCWSTR)
+    _bind(lib, "GetSystemDirectoryW", wintypes.UINT, wintypes.LPWSTR, wintypes.UINT)
     _bind(lib, "GetVolumePathNameW", wintypes.BOOL, wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
     _bind(lib, "GetVolumeInformationW", wintypes.BOOL, wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD,
           ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD),
