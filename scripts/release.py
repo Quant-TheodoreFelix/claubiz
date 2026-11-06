@@ -183,6 +183,9 @@ def build_release(base_url: str, out: Path, offline: bool = True) -> dict[str, s
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if (stream.encoding or "").lower().replace("-", "") != "utf8" and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="claubiz 설치 스크립트와 배포 묶음 생성")
     parser.add_argument("--base-url", required=True, help="배포 묶음을 올릴 https 주소 (예: https://get.example.com)")
     parser.add_argument("--out", default=str(ROOT / "dist" / "site"), help="출력 폴더 (기본 dist/site)")

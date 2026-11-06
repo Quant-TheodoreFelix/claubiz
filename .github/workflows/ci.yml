@@ -133,6 +133,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           & $exe ws list
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: background task registers with Task Scheduler
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\claubiz\bin\claubiz.exe'
+          $env:CLAUBIZ_HOME = Join-Path $env:RUNNER_TEMP 'home'
+          & $exe agent install --yes --interval 15
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $xml = [xml](& schtasks.exe /Query /TN '\claubiz\digest' /XML | Out-String)
+          if ($xml.Task.Actions.Exec.Command -notlike '*\venv\Scripts\pythonw.exe') { throw "unexpected command: $($xml.Task.Actions.Exec.Command)" }
+          if ($xml.Task.Principals.Principal.RunLevel -ne 'LeastPrivilege') { throw 'task is not least privilege' }
+          & $exe agent status
+          $script = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 "$env:RUNNER_TEMP\site\install.ps1"))
+          $refused = $false
+          try { & $script -Uninstall -AllowElevated } catch { $refused = $_.Exception.Message -like '*agent uninstall*' }
+          if (-not $refused) { throw 'uninstall did not refuse while the task is registered' }
+          & $exe agent uninstall
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & schtasks.exe /Query /TN '\claubiz\digest' *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'task still registered' }
       - name: uninstall
         shell: pwsh
         run: |
